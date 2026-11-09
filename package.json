@@ -1,0 +1,44 @@
+{
+  "name": "@deckflow/deckflow-cli",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "DeckFlow command line client for DeckBase",
+  "repository": "https://github.com/deckflow/deckflow-cli.git",
+  "bin": {
+    "deckflow": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "docs"
+  ],
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "packageManager": "pnpm@11.21.0",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "contracts": "node scripts/contracts.mjs",
+    "typecheck": "pnpm contracts && tsc --noEmit",
+    "test": "pnpm build && vitest run",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "pack:check": "node scripts/pack-check.mjs",
+    "ci:check": "pnpm format:check && pnpm typecheck && pnpm test && pnpm pack:check"
+  },
+  "dependencies": {
+    "@napi-rs/keyring": "2.1.2"
+  },
+  "devDependencies": {
+    "@deckflow/deckbase-sdk": "file:../deckbase/dist-sdk",
+    "@types/node": "22",
+    "commander": "latest",
+    "esbuild": "latest",
+    "open": "latest",
+    "prettier": "latest",
+    "typescript": "7.0.2",
+    "vitest": "latest"
+  }
+}

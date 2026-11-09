@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build, test, and packaging outputs
+/dist/
+/src/sdk-methods.generated.ts
+/coverage/
+*.tsbuildinfo
+*.tgz
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+.npmrc
+.deckflow.json
+
+# Local logs and OS files
+*.log
+.DS_Store
+Thumbs.db
