@@ -190,11 +190,9 @@ commands(root, (cmd, run) => {
     const command = values.at(-1) as Command;
     const options = command.opts() as Record<string, string | undefined>;
     const global = root.opts<Globals>();
-    const result = await run(
-      new Context(global),
-      values.slice(0, -2) as string[],
-      options,
-    );
+    const ctx = new Context(global);
+    await ctx.initialize();
+    const result = await run(ctx, values.slice(0, -2) as string[], options);
     if (
       result &&
       typeof result === "object" &&

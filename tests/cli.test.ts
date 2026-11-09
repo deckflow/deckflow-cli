@@ -5,6 +5,7 @@ import {
   mkdir,
   readFile,
   rm,
+  stat,
   truncate,
   writeFile,
 } from "node:fs/promises";
@@ -98,6 +99,8 @@ async function cli(
           DECKFLOW_WEB_URL: base + "/web",
           DECKFLOW_SPACE: "ws",
           DECKFLOW_TOKEN: "test-token",
+          HOME: temp,
+          USERPROFILE: temp,
           XDG_CONFIG_HOME: temp,
           ...env,
         },
@@ -168,12 +171,73 @@ describe("CLI contract", () => {
       value: "new",
     });
   });
+  it("stores credentials privately, keeps the auth UUID, and binds the token to its API root", async () => {
+    const dir = join(temp, ".deckflow");
+    const credentials = join(dir, "credentials");
+    const authUuid = join(dir, "auth-uuid");
+    handler = (_, res) => json(res, { id: "user", name: "Test" });
+    const env = { DECKFLOW_TOKEN: "", DECKFLOW_API_URL: "" };
+
+    await Promise.all([
+      cli(["config", "set", "apiUrl", base + "/api", "--json"]),
+      cli(["config", "set", "webUrl", base + "/web", "--json"]),
+    ]).then((runs) => runs.forEach((run) => result(run)));
+
+    const uuid = await readFile(authUuid, "utf8");
+    expect(uuid.trim()).toMatch(/^[a-f0-9-]{36}$/);
+    result(
+      await cli(
+        ["auth", "login", "--token-stdin", "--json"],
+        env,
+        temp,
+        "stored-token",
+      ),
+    );
+    result(await cli(["space", "use", "test-space", "--json"], env));
+
+    expect(JSON.parse(await readFile(credentials, "utf8"))).toMatchObject({
+      apiRoot: base + "/api",
+      webRoot: base + "/web",
+      spaceId: "test-space",
+      token: "stored-token",
+    });
+    if (process.platform !== "win32")
+      expect((await stat(credentials)).mode & 0o777).toBe(0o600);
+    expect(result(await cli(["config", "list", "--json"], env))).toEqual({
+      apiUrl: base + "/api",
+      webUrl: base + "/web",
+      space: "test-space",
+    });
+    expect(result(await cli(["auth", "status", "--json"], env)).source).toBe(
+      "credential-store",
+    );
+    expect(requests.at(-1)?.auth).toBe("Bearer stored-token");
+    const count = requests.length;
+    expect(
+      result(
+        await cli(["auth", "status", "--json"], {
+          ...env,
+          DECKFLOW_API_URL: base + "/other",
+        }),
+        3,
+      ).code,
+    ).toBe("AUTH_REQUIRED");
+    expect(requests).toHaveLength(count);
+
+    result(await cli(["auth", "logout", "--json"], env));
+    expect(JSON.parse(await readFile(credentials, "utf8"))).toEqual({
+      apiRoot: base + "/api",
+      webRoot: base + "/web",
+      spaceId: "test-space",
+    });
+    expect(await readFile(authUuid, "utf8")).toBe(uuid);
+  });
   it("honors space precedence and applies SDK pagination", async () => {
     await mkdir(join(temp, "child"));
-    await mkdir(join(temp, "deckflow"));
+    await mkdir(join(temp, ".deckflow"));
     await writeFile(
-      join(temp, "deckflow", "config.json"),
-      JSON.stringify({ space: "user" }),
+      join(temp, ".deckflow", "credentials"),
+      JSON.stringify({ spaceId: "user" }),
     );
     await writeFile(
       join(temp, ".deckflow.json"),

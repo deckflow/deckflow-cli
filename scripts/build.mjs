@@ -8,8 +8,9 @@ await build({
   platform: "node",
   format: "esm",
   target: "node22",
-  external: ["@napi-rs/keyring"],
-  banner: { js: "#!/usr/bin/env node" },
+  banner: {
+    js: '#!/usr/bin/env node\nimport { createRequire } from "node:module";\nconst require = createRequire(import.meta.url);',
+  },
   define: {
     __VERSION__: JSON.stringify(
       JSON.parse(

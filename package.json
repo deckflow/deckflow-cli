@@ -28,16 +28,15 @@
     "pack:check": "node scripts/pack-check.mjs",
     "ci:check": "pnpm format:check && pnpm typecheck && pnpm test && pnpm pack:check"
   },
-  "dependencies": {
-    "@napi-rs/keyring": "2.1.2"
-  },
   "devDependencies": {
     "@deckflow/deckbase-sdk": "file:../deckbase/dist-sdk",
     "@types/node": "22",
+    "@types/proper-lockfile": "4.1.4",
     "commander": "latest",
     "esbuild": "latest",
     "open": "latest",
     "prettier": "latest",
+    "proper-lockfile": "4.1.2",
     "typescript": "7.0.2",
     "vitest": "latest"
   }

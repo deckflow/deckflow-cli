@@ -14,6 +14,8 @@ import {
   isRead,
   methodOf,
   page,
+  readJson,
+  type Config,
   saveJson,
   stdinText,
   unsupported,
@@ -187,17 +189,16 @@ export function commands(root: Command, register: Register) {
           await ctx.client()
         )("space.detail", { id: value });
       if (ctx.opts.dryRun) return { dryRun: true, key, value };
-      await saveJson(ctx.configPath, {
-        ...(await ctx.config()),
-        [field]: value,
-      });
+      await ctx.setConfig(field, value);
       return { key, value };
     },
     (c) => c.addHelpText("after", configHelp("set")),
   );
 
-  const identity = async (ctx: Context, token?: string) => {
-    const user = await (await ctx.client(token))("user.self", { _full: "no" });
+  const identity = async (ctx: Context, token?: string, apiUrl?: string) => {
+    const user = await (
+      await ctx.client(token, apiUrl)
+    )("user.self", { _full: "no" });
     return { id: user.id, name: user.name };
   };
   const auth = group("auth", "管理 DeckBase 身份");
@@ -219,8 +220,9 @@ export function commands(root: Command, register: Register) {
           "请提供有效 Token，使用 --token-stdin 或 DECKFLOW_TOKEN",
           3,
         );
-      const user = await identity(ctx, token);
-      await ctx.credentialStore(await ctx.apiUrl()).set(token);
+      const apiUrl = await ctx.apiUrl();
+      const user = await identity(ctx, token, apiUrl);
+      await ctx.saveToken(apiUrl, token);
       return {
         authenticated: true,
         user,
@@ -236,7 +238,7 @@ export function commands(root: Command, register: Register) {
   }));
   add(auth, "logout", "清除本地凭据", async (ctx) => {
     if (ctx.opts.dryRun) return { dryRun: true, apiUrl: await ctx.apiUrl() };
-    await ctx.credentialStore(await ctx.apiUrl()).clear();
+    await ctx.clearToken(await ctx.apiUrl());
     if (ctx.env.DECKFLOW_TOKEN)
       process.stderr.write("DECKFLOW_TOKEN 仍然生效。\n");
     return {
@@ -279,12 +281,17 @@ export function commands(root: Command, register: Register) {
       await (
         await ctx.client()
       )("space.detail", { id });
-      const path = o.local ? join(ctx.cwd, ".deckflow.json") : ctx.configPath;
-      if (!ctx.opts.dryRun)
-        await saveJson(path, {
-          ...(await ctx.config(path)),
-          space: id,
-        });
+      if (!ctx.opts.dryRun) {
+        if (o.local) {
+          const path = join(ctx.cwd, ".deckflow.json");
+          await saveJson(path, {
+            ...(await readJson<Config>(path)),
+            space: id,
+          });
+        } else {
+          await ctx.setConfig("space", id);
+        }
+      }
       return {
         space: id,
         source: o.local ? "project" : "user",

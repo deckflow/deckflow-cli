@@ -29,7 +29,7 @@ async function run(args, env = {}) {
       [join(temp, "node_modules/@deckflow/deckflow-cli/dist/cli.js"), ...args],
       {
         cwd: temp,
-        env: { ...process.env, ...env },
+        env: { ...process.env, HOME: temp, USERPROFILE: temp, ...env },
         stdio: ["ignore", "pipe", "pipe"],
       },
     );

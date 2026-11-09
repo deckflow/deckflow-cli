@@ -4,12 +4,21 @@ import {
   type Params,
   type Result,
 } from "@deckflow/deckbase-sdk";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import {
+  link,
+  lstat,
+  mkdir,
+  readFile,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { createInterface } from "node:readline/promises";
 import { setTimeout as sleep } from "node:timers/promises";
+import lockfile from "proper-lockfile";
 import { methods } from "./sdk-methods.generated.js";
 
 export class CliError extends Error {
@@ -39,16 +48,19 @@ export type Globals = {
 };
 export const configFields = {
   apiUrl: {
+    storedAs: "apiRoot",
     format: "url",
     description: "DeckBase API 的基础地址，用于 CLI 发起 API 请求。",
     example: "https://deckbase.example.com/api",
   },
   webUrl: {
+    storedAs: "webRoot",
     format: "url",
     description: "DeckBase 网页的基础地址，用于生成 deckflow open 的资源链接。",
     example: "https://deckbase.example.com",
   },
   space: {
+    storedAs: "spaceId",
     format: "id",
     description: "用户级默认工作空间。",
     example: "YOUR_SPACE_ID",
@@ -186,46 +198,16 @@ export type ApiCall = <M extends Method>(
   params: Params<M>,
   signal?: AbortSignal,
 ) => Promise<Result<M>>;
-export interface Credentials {
-  get(): Promise<string | null>;
-  set(value: string): Promise<void>;
-  clear(): Promise<void>;
-}
-async function credentialEntry(apiUrl: string) {
-  const { Entry } = await import("@napi-rs/keyring");
-  return new Entry("deckflow-cli", apiUrl);
-}
-const systemCredentials = (url: string): Credentials => ({
-  async get() {
-    try {
-      return (await credentialEntry(url)).getPassword();
-    } catch {
-      return null;
-    }
-  },
-  async set(value) {
-    try {
-      (await credentialEntry(url)).setPassword(value);
-    } catch {
-      throw new CliError(
-        "CREDENTIAL_STORE_UNAVAILABLE",
-        "系统凭据库不可写，请使用 DECKFLOW_TOKEN",
-        3,
-      );
-    }
-  },
-  async clear() {
-    try {
-      (await credentialEntry(url)).deletePassword();
-    } catch {
-      throw new CliError("CREDENTIAL_STORE_UNAVAILABLE", "无法清除系统凭据", 3);
-    }
-  },
-});
+type StoredCredentials = Partial<
+  Record<
+    (typeof configFields)[keyof Config]["storedAs"] | "token" | "tokenApiRoot",
+    string
+  >
+>;
 
 export class Context {
   readonly cwd: string;
-  readonly configPath: string;
+  readonly credentialsPath: string;
   readonly stateDir: string;
   readonly env: NodeJS.ProcessEnv;
   readonly fetch: typeof fetch;
@@ -239,7 +221,6 @@ export class Context {
       cwd?: string;
       env?: NodeJS.ProcessEnv;
       fetch?: typeof fetch;
-      credentialStore?: (url: string) => Credentials;
       tty?: boolean;
     } = {},
   ) {
@@ -250,7 +231,7 @@ export class Context {
       this.env.XDG_CONFIG_HOME || join(homedir(), ".config"),
       "deckflow",
     );
-    this.configPath = join(this.stateDir, "config.json");
+    this.credentialsPath = join(homedir(), ".deckflow", "credentials");
     const tty =
       deps.tty ?? Boolean(process.stdin.isTTY && process.stderr.isTTY);
     this.interactive =
@@ -264,16 +245,78 @@ export class Context {
     this.requestMs = duration(opts.timeout ?? "30s");
     this.waitMs = duration(opts.waitTimeout ?? "10m");
   }
-  async config(path = this.configPath): Promise<Config> {
-    return (await readJson<Config>(path)) ?? {};
+  async initialize() {
+    if (this.opts.dryRun) return;
+    const dir = dirname(this.credentialsPath);
+    const path = join(dir, "auth-uuid");
+    try {
+      await lstat(path);
+      return;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    await mkdir(dir, { recursive: true, mode: 0o700 });
+    const id = randomUUID();
+    const temp = join(dir, `.auth-uuid.${id}.tmp`);
+    try {
+      await writeFile(temp, id + "\n", { mode: 0o600, flag: "wx" });
+      await link(temp, path);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    } finally {
+      await rm(temp, { force: true });
+    }
+  }
+  private async credentials() {
+    return (await readJson<StoredCredentials>(this.credentialsPath)) ?? {};
+  }
+  private async updateCredentials(update: (data: StoredCredentials) => void) {
+    const release = await lockfile.lock(this.credentialsPath, {
+      realpath: false,
+      retries: { retries: 30, minTimeout: 25, maxTimeout: 250 },
+    });
+    try {
+      const data = await this.credentials();
+      update(data);
+      await saveJson(this.credentialsPath, data);
+    } finally {
+      await release();
+    }
+  }
+  async config(): Promise<Config> {
+    const data = await this.credentials();
+    return Object.fromEntries(
+      Object.entries(configFields)
+        .map(([key, field]) => [key, data[field.storedAs]])
+        .filter(([, value]) => value !== undefined),
+    );
+  }
+  async setConfig(key: keyof Config, value: string) {
+    await this.updateCredentials((data) => {
+      data[configFields[key].storedAs] = value;
+    });
+  }
+  async saveToken(url: string, token: string) {
+    await this.updateCredentials((data) => {
+      data.apiRoot ??= url;
+      data.tokenApiRoot = url;
+      data.token = token;
+    });
+  }
+  async clearToken(url: string) {
+    await this.updateCredentials((data) => {
+      if ((data.tokenApiRoot ?? data.apiRoot) !== url) return;
+      delete data.token;
+      delete data.tokenApiRoot;
+    });
   }
   async spaceInfo() {
     if (this.opts.space) return { id: this.opts.space, source: "flag" };
     const envSpace = this.env.DECKFLOW_SPACE;
     if (envSpace) return { id: envSpace, source: "environment" };
     for (let dir = this.cwd; ; dir = dirname(dir)) {
-      const project = await this.config(join(dir, ".deckflow.json"));
-      if (project.space) return { id: project.space, source: "project" };
+      const project = await readJson<Config>(join(dir, ".deckflow.json"));
+      if (project?.space) return { id: project.space, source: "project" };
       if (dirname(dir) === dir) break;
     }
     return { id: (await this.config()).space, source: "user" };
@@ -293,14 +336,13 @@ export class Context {
     if (!value) throw usage("请配置 DECKFLOW_WEB_URL 或 config set webUrl");
     return endpoint(value, "Web 地址");
   }
-  credentialStore(url: string) {
-    return (this.deps.credentialStore ?? systemCredentials)(url);
-  }
-  async client(credential?: string): Promise<ApiCall> {
-    const url = await this.apiUrl();
-    const token =
-      credential ??
-      (this.env.DECKFLOW_TOKEN || (await this.credentialStore(url).get()));
+  async client(credential?: string, apiUrl?: string): Promise<ApiCall> {
+    const url = apiUrl ?? (await this.apiUrl());
+    let token = credential ?? this.env.DECKFLOW_TOKEN;
+    if (!token && credential === undefined) {
+      const data = await this.credentials();
+      if ((data.tokenApiRoot ?? data.apiRoot) === url) token = data.token;
+    }
     if (!token)
       throw new CliError(
         "AUTH_REQUIRED",

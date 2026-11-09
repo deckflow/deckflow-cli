@@ -4,7 +4,7 @@
 
 | 命令                                              | DeckBase SDK 或本地行为                                                   |
 | ------------------------------------------------- | ------------------------------------------------------------------------- |
-| `auth login/logout/status`                        | 凭据库、`user.self`                                                       |
+| `auth login/logout/status`                        | 本地凭据文件、`user.self`                                                 |
 | `config list/get/set`、`status`                   | 用户配置、身份及有效工作空间                                              |
 | `space list/get/create/use/members`               | `my.spaces`、`space.detail`、`my.addSpace`、项目或用户绑定、`space.users` |
 | `upload` / `file upload`                          | `uploadSession.*`、签名存储、`file.add`                                   |

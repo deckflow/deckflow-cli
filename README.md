@@ -33,7 +33,7 @@ deckflow download <file-id> --output ./downloaded-report.pdf
 deckflow open <file-id> --type file
 ```
 
-从 DeckBase WebUI 的 API Key 页面获取密钥。交互登录会隐藏输入，并按 API 地址存入系统凭据库。CI 通过密钥管理器设置 `DECKFLOW_TOKEN`，可以直接运行命令。
+从 DeckBase WebUI 的 API Key 页面获取密钥。交互登录会隐藏输入，并将 Token 和对应 API 地址存入 `~/.deckflow/credentials`。CI 通过密钥管理器设置 `DECKFLOW_TOKEN`，可以直接运行命令。
 
 - [命令参考与支持矩阵](docs/commands.md)
 - [认证与工作空间](docs/auth-and-workspaces.md)
