@@ -20,6 +20,7 @@
   },
   "scripts": {
     "build": "node scripts/build.mjs",
+    "release": "node scripts/release.mjs",
     "contracts": "node scripts/contracts.mjs",
     "typecheck": "pnpm contracts && tsc --noEmit",
     "test": "pnpm build && vitest run",

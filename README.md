@@ -55,4 +55,15 @@ pnpm pack
 
 升级 SDK 时，同步更新 CI 固定的 commit，重新构建 SDK 并安装 CLI 开发依赖后运行检查。CLI 从 SDK 类型和对应源码生成方法清单，用于验证 `api` 方法及其 HTTP 动词。
 
+## 本地发布
+
+更新 `package.json` 的版本号，并为目标 registry 配置有发布权限的 npm 凭据。两个命令都会重新构建并打包当前版本。
+
+```sh
+pnpm release          # 公开发布到 registry.npmjs.org
+pnpm release --github # 发布到 npm.pkg.github.com
+```
+
+任一命令可加 `--dry-run` 预览目标和安装包。发布到 GitHub Packages 时，同一版本也可以走下方的 tag 发布流程，选择其中一个入口即可。
+
 GitHub Actions 的构建需要 `DECKBASE_CHECKOUT_TOKEN`（仅 DeckBase 仓库读取）和 `DECKBASE_PACKAGES_TOKEN`（读取 DeckBase 的私有包依赖）。带版本的 `v*` tag 通过三平台安装验证后发布，tag 必须与 `package.json` 版本一致。发布作业使用当前仓库的 `GITHUB_TOKEN`。
