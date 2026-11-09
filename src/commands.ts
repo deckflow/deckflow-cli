@@ -6,6 +6,7 @@ import openBrowser from "open";
 import {
   CliError,
   Context,
+  configFields,
   configKey,
   endpoint,
   hiddenToken,
@@ -13,8 +14,6 @@ import {
   isRead,
   methodOf,
   page,
-  readJson,
-  type Config,
   saveJson,
   stdinText,
   unsupported,
@@ -56,6 +55,29 @@ const modernPage = (o: Options) => {
   const p = page(o);
   return { limit: p._maxResults, offset: p._startIndex };
 };
+
+function configHelp(action: "get" | "set") {
+  const fields = Object.entries(configFields);
+  const lines = fields.map(([key, field]) => {
+    const label = action === "set" ? `${key} <${field.format}>` : key;
+    return `  ${label.padEnd(16)} ${field.description}`;
+  });
+  if (action === "set") {
+    lines.push(
+      "",
+      "URL 必须是完整的 HTTP(S) 地址，不可包含用户名、密码、查询参数或片段。",
+      "空间 ID 可从 deckflow space list 获取，保存时会验证当前凭据的访问权限。",
+      "",
+      "示例：",
+      ...fields.map(
+        ([key, field]) => `  deckflow config set ${key} ${field.example}`,
+      ),
+    );
+  }
+  return `
+支持的配置项（键名区分大小写）：
+${lines.join("\n")}`;
+}
 
 async function openResource(
   ctx: Context,
@@ -140,22 +162,39 @@ export function commands(root: Command, register: Register) {
     root.command(name).description(description);
   const config = group("config", "管理本地配置");
   add(config, "list", "列出用户配置", (ctx) => ctx.config());
-  add(config, "get <key>", "读取配置", async (ctx, [key]) => ({
-    key,
-    value: (await ctx.config())[configKey(key)] ?? null,
-  }));
-  add(config, "set <key> <value>", "保存配置", async (ctx, [key, raw]) => {
-    const field = configKey(key);
-    const value =
-      field === "workspace" ? required(raw, key) : endpoint(raw, key);
-    if (field === "workspace")
-      await (
-        await ctx.client()
-      )("space.detail", { id: value });
-    if (ctx.opts.dryRun) return { dryRun: true, key, value };
-    await saveJson(ctx.configPath, { ...(await ctx.config()), [field]: value });
-    return { key, value };
-  });
+  add(
+    config,
+    "get <key>",
+    "读取配置",
+    async (ctx, [key]) => ({
+      key,
+      value: (await ctx.config())[configKey(key)] ?? null,
+    }),
+    (c) => c.addHelpText("after", configHelp("get")),
+  );
+  add(
+    config,
+    "set <key> <value>",
+    "保存配置",
+    async (ctx, [key, raw]) => {
+      const field = configKey(key);
+      const value =
+        configFields[field].format === "url"
+          ? endpoint(raw, key)
+          : required(raw, key);
+      if (field === "space")
+        await (
+          await ctx.client()
+        )("space.detail", { id: value });
+      if (ctx.opts.dryRun) return { dryRun: true, key, value };
+      await saveJson(ctx.configPath, {
+        ...(await ctx.config()),
+        [field]: value,
+      });
+      return { key, value };
+    },
+    (c) => c.addHelpText("after", configHelp("set")),
+  );
 
   const identity = async (ctx: Context, token?: string) => {
     const user = await (await ctx.client(token))("user.self", { _full: "no" });
@@ -208,19 +247,19 @@ export function commands(root: Command, register: Register) {
   add(root, "status", "显示身份、地址和工作空间", async (ctx) => ({
     apiUrl: await ctx.apiUrl(),
     webUrl: ctx.env.DECKFLOW_WEB_URL || (await ctx.config()).webUrl || null,
-    workspace: await ctx.workspaceInfo(),
+    space: await ctx.spaceInfo(),
     user: await identity(ctx),
   }));
 
-  const ws = group("workspace", "管理工作空间");
-  add(ws, "list", "列出可访问的工作空间", async (ctx) =>
+  const space = group("space", "管理工作空间");
+  add(space, "list", "列出可访问的工作空间", async (ctx) =>
     (await ctx.client())("my.spaces", {}),
   );
-  add(ws, "get [id]", "查看工作空间", async (ctx, [id]) =>
+  add(space, "get [id]", "查看工作空间", async (ctx, [id]) =>
     (await ctx.client())("space.detail", { id: id ?? (await ctx.space()) }),
   );
   add(
-    ws,
+    space,
     "create <name>",
     "创建工作空间",
     async (ctx, [name], o) => {
@@ -233,7 +272,7 @@ export function commands(root: Command, register: Register) {
     (c) => c.requiredOption("--region <id>", "区域 ID"),
   );
   add(
-    ws,
+    space,
     "use <id>",
     "保存默认工作空间",
     async (ctx, [id], o) => {
@@ -243,11 +282,11 @@ export function commands(root: Command, register: Register) {
       const path = o.local ? join(ctx.cwd, ".deckflow.json") : ctx.configPath;
       if (!ctx.opts.dryRun)
         await saveJson(path, {
-          ...(o.local ? await readJson<Config>(path) : await ctx.config()),
-          workspace: id,
+          ...(await ctx.config(path)),
+          space: id,
         });
       return {
-        workspace: id,
+        space: id,
         source: o.local ? "project" : "user",
         ...(ctx.opts.dryRun && { dryRun: true }),
       };
@@ -255,7 +294,7 @@ export function commands(root: Command, register: Register) {
     (c) => c.option("--local", "写入当前项目配置"),
   );
   add(
-    ws,
+    space,
     "members [id]",
     "列出空间成员",
     async (ctx, [id], o) =>

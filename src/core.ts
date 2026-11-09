@@ -27,7 +27,7 @@ export const usage = (message: string) =>
 export const unsupported = (feature: string) =>
   new CliError("FEATURE_NOT_SUPPORTED", `${feature}：后续支持`, 11);
 export type Globals = {
-  workspace?: string;
+  space?: string;
   json?: boolean;
   noInput?: boolean;
   input?: boolean;
@@ -37,11 +37,28 @@ export type Globals = {
   waitTimeout?: string;
   verbose?: boolean;
 };
-export type Config = { apiUrl?: string; webUrl?: string; workspace?: string };
-const configKeys = ["apiUrl", "webUrl", "workspace"] as const;
+export const configFields = {
+  apiUrl: {
+    format: "url",
+    description: "DeckBase API 的基础地址，用于 CLI 发起 API 请求。",
+    example: "https://deckbase.example.com/api",
+  },
+  webUrl: {
+    format: "url",
+    description: "DeckBase 网页的基础地址，用于生成 deckflow open 的资源链接。",
+    example: "https://deckbase.example.com",
+  },
+  space: {
+    format: "id",
+    description: "用户级默认工作空间。",
+    example: "YOUR_SPACE_ID",
+  },
+} as const;
+export type Config = Partial<Record<keyof typeof configFields, string>>;
+
 export function configKey(key: string): keyof Config {
-  if (!configKeys.includes(key as keyof Config))
-    throw usage("配置项必须是 apiUrl、webUrl 或 workspace");
+  if (!Object.hasOwn(configFields, key))
+    throw usage(`配置项必须是 ${Object.keys(configFields).join("、")}`);
   return key as keyof Config;
 }
 export function endpoint(value: string, label: string) {
@@ -247,25 +264,23 @@ export class Context {
     this.requestMs = duration(opts.timeout ?? "30s");
     this.waitMs = duration(opts.waitTimeout ?? "10m");
   }
-  async config() {
-    return (await readJson<Config>(this.configPath)) ?? {};
+  async config(path = this.configPath): Promise<Config> {
+    return (await readJson<Config>(path)) ?? {};
   }
-  async workspaceInfo() {
-    if (this.opts.workspace) return { id: this.opts.workspace, source: "flag" };
-    if (this.env.DECKFLOW_WORKSPACE)
-      return { id: this.env.DECKFLOW_WORKSPACE, source: "environment" };
+  async spaceInfo() {
+    if (this.opts.space) return { id: this.opts.space, source: "flag" };
+    const envSpace = this.env.DECKFLOW_SPACE;
+    if (envSpace) return { id: envSpace, source: "environment" };
     for (let dir = this.cwd; ; dir = dirname(dir)) {
-      const project = await readJson<Config>(join(dir, ".deckflow.json"));
-      if (project?.workspace)
-        return { id: project.workspace, source: "project" };
+      const project = await this.config(join(dir, ".deckflow.json"));
+      if (project.space) return { id: project.space, source: "project" };
       if (dirname(dir) === dir) break;
     }
-    return { id: (await this.config()).workspace, source: "user" };
+    return { id: (await this.config()).space, source: "user" };
   }
   async space() {
-    const { id } = await this.workspaceInfo();
-    if (!id)
-      throw usage("请用 workspace use <id> 绑定工作空间，或指定 --workspace");
+    const { id } = await this.spaceInfo();
+    if (!id) throw usage("请用 space use <id> 绑定工作空间，或指定 --space");
     return id;
   }
   async apiUrl() {

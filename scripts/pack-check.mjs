@@ -86,7 +86,7 @@ try {
   assert.match(await run(["--version"]), /^\d+\.\d+\.\d+/);
   await new Promise((ok) => server.listen(0, "127.0.0.1", ok));
   const result = await run(
-    ["file", "get", "example", "--json", "--workspace", "space"],
+    ["file", "get", "example", "--json", "--space", "space"],
     {
       DECKFLOW_TOKEN: "pack-check",
       DECKFLOW_API_URL: `http://127.0.0.1:${server.address().port}/api`,

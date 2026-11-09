@@ -24,8 +24,8 @@ deckflow --version
 deckflow config set apiUrl https://deckbase.example.com/api
 deckflow config set webUrl https://deckbase.example.com
 deckflow auth login
-deckflow workspace list
-deckflow workspace use <workspace-id>
+deckflow space list
+deckflow space use <space-id>
 deckflow folder create Reports
 deckflow upload ./report.pdf --folder /Reports
 deckflow file list --folder /Reports --json

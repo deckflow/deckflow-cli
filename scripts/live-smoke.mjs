@@ -6,32 +6,24 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 
-const workspace = process.env.DECKFLOW_SMOKE_WORKSPACE;
-if (
-  !workspace ||
-  !process.env.DECKFLOW_API_URL ||
-  !process.env.DECKFLOW_TOKEN
-) {
+const space = process.env.DECKFLOW_SMOKE_SPACE;
+if (!space || !process.env.DECKFLOW_API_URL || !process.env.DECKFLOW_TOKEN) {
   throw Error(
-    "需要 DECKFLOW_SMOKE_WORKSPACE（专用测试空间）、DECKFLOW_API_URL 和 DECKFLOW_TOKEN",
+    "需要 DECKFLOW_SMOKE_SPACE（专用测试空间）、DECKFLOW_API_URL 和 DECKFLOW_TOKEN",
   );
 }
 const temp = await mkdtemp(join(tmpdir(), "deckflow-live-"));
 const name = "deckflow-smoke-" + randomUUID();
-const workspaceFlags = ["--workspace", workspace, "--json", "--no-input"];
+const spaceFlags = ["--space", space, "--json", "--no-input"];
 const cleanup = [];
 function run(args, input) {
   try {
     return JSON.parse(
-      execFileSync(
-        process.execPath,
-        ["dist/cli.js", ...args, ...workspaceFlags],
-        {
-          input,
-          encoding: "utf8",
-          stdio: ["pipe", "pipe", "pipe"],
-        },
-      ),
+      execFileSync(process.execPath, ["dist/cli.js", ...args, ...spaceFlags], {
+        input,
+        encoding: "utf8",
+        stdio: ["pipe", "pipe", "pipe"],
+      }),
     );
   } catch (error) {
     throw Error(
@@ -83,7 +75,7 @@ try {
     run(
       ["api", "sharePage.remove", "--input", "-", "--yes"],
       JSON.stringify({
-        spaceId: workspace,
+        spaceId: space,
         id: share.id,
         rowVersion: page.rowVersion,
       }),
@@ -93,7 +85,7 @@ try {
   run(
     ["api", "sharePage.addItem", "--input", "-", "--yes"],
     JSON.stringify({
-      spaceId: workspace,
+      spaceId: space,
       id: share.id,
       rowVersion: page.rowVersion,
       type: "document",

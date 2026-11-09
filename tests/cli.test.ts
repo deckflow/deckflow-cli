@@ -96,7 +96,7 @@ async function cli(
           ...process.env,
           DECKFLOW_API_URL: base + "/api",
           DECKFLOW_WEB_URL: base + "/web",
-          DECKFLOW_WORKSPACE: "ws",
+          DECKFLOW_SPACE: "ws",
           DECKFLOW_TOKEN: "test-token",
           XDG_CONFIG_HOME: temp,
           ...env,
@@ -146,24 +146,46 @@ describe("CLI contract", () => {
     ).toBe("FEATURE_NOT_SUPPORTED");
     expect(requests).toEqual([]);
   });
-  it("honors workspace precedence and applies SDK pagination", async () => {
+  it("lists supported keys in both config help screens", async () => {
+    const get = await cli(["config", "get", "--help"]);
+    const set = await cli(["config", "set", "--help"]);
+    expect(get.code).toBe(0);
+    expect(set.code).toBe(0);
+    for (const key of ["apiUrl", "webUrl", "space"]) {
+      expect(get.stdout).toMatch(new RegExp(`^  ${key} +\\S`, "m"));
+      expect(set.stdout).toContain(`deckflow config set ${key} `);
+    }
+    expect(requests).toEqual([]);
+  });
+  it("saves the default space and reads it with config get", async () => {
+    handler = (_, res) => json(res, { id: "new" });
+    expect(result(await cli(["space", "use", "new", "--json"]))).toEqual({
+      space: "new",
+      source: "user",
+    });
+    expect(result(await cli(["config", "get", "space", "--json"]))).toEqual({
+      key: "space",
+      value: "new",
+    });
+  });
+  it("honors space precedence and applies SDK pagination", async () => {
     await mkdir(join(temp, "child"));
     await mkdir(join(temp, "deckflow"));
     await writeFile(
       join(temp, "deckflow", "config.json"),
-      JSON.stringify({ workspace: "user" }),
+      JSON.stringify({ space: "user" }),
     );
     await writeFile(
       join(temp, ".deckflow.json"),
-      JSON.stringify({ workspace: "project" }),
+      JSON.stringify({ space: "project" }),
     );
     handler = (_, res, path) => json(res, { id: path.split("/")[3] });
     const args = ["file", "list", "--limit", "4", "--offset", "3", "--json"];
-    result(await cli([...args, "--workspace", "flag"]));
+    result(await cli([...args, "--space", "flag"]));
     result(await cli(args));
-    result(await cli(args, { DECKFLOW_WORKSPACE: "" }, join(temp, "child")));
+    result(await cli(args, { DECKFLOW_SPACE: "" }, join(temp, "child")));
     await rm(join(temp, ".deckflow.json"));
-    result(await cli(args, { DECKFLOW_WORKSPACE: "" }));
+    result(await cli(args, { DECKFLOW_SPACE: "" }));
     expect(requests.map((r) => r.path)).toEqual(
       ["flag", "ws", "project", "user"].map(
         (id) => `/api/spaces/${id}/files?_maxResults=4&_startIndex=3`,

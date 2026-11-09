@@ -1,6 +1,6 @@
 # Agent 与 CI
 
-在环境中注入 `DECKFLOW_API_URL`、`DECKFLOW_TOKEN` 和 `DECKFLOW_WORKSPACE`，然后使用 `--no-input --json`。
+在环境中注入 `DECKFLOW_API_URL`、`DECKFLOW_TOKEN` 和 `DECKFLOW_SPACE`，然后使用 `--no-input --json`。
 
 ```sh
 deckflow file list --limit 50 --offset 0 --no-input --json
@@ -30,10 +30,10 @@ deckflow api file.detail --input ./params.json --no-input --json
 
 ## 真实环境冒烟
 
-将 `DECKFLOW_SMOKE_WORKSPACE` 设为允许写入且用于测试的专用 Workspace，提供 `DECKFLOW_API_URL` 和有权限创建文件、版本、分享、专辑的 `DECKFLOW_TOKEN`。先运行 `pnpm build`，然后运行：
+将 `DECKFLOW_SMOKE_SPACE` 设为允许写入且用于测试的专用工作空间，提供 `DECKFLOW_API_URL` 和有权限创建文件、版本、分享、专辑的 `DECKFLOW_TOKEN`。先运行 `pnpm build`，然后运行：
 
 ```sh
 node scripts/live-smoke.mjs
 ```
 
-脚本创建唯一目录，验证上传下载、版本恢复、分享和专辑，并清理本次成功创建且已获得 ID 的资源。测试 Workspace 需要支持文件传输和分享、专辑功能。
+脚本创建唯一目录，验证上传下载、版本恢复、分享和专辑，并清理本次成功创建且已获得 ID 的资源。测试工作空间需要支持文件传输和分享、专辑功能。
