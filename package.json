@@ -12,7 +12,7 @@
     "docs"
   ],
   "engines": {
-    "node": ">=22.12.0"
+    "node": ">=18.17.0"
   },
   "packageManager": "pnpm@11.21.0",
   "publishConfig": {
@@ -32,9 +32,9 @@
     "@deckflow/deckbase-sdk": "file:../deckbase/dist-sdk",
     "@types/node": "22",
     "@types/proper-lockfile": "4.1.4",
-    "commander": "latest",
+    "commander": "13.1.0",
     "esbuild": "latest",
-    "open": "latest",
+    "open": "10.2.0",
     "prettier": "latest",
     "proper-lockfile": "4.1.2",
     "typescript": "7.0.2",

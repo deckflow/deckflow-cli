@@ -4,7 +4,7 @@
 
 ## 安装
 
-需要 Node.js 22.12.0 或更高版本。发布包位于 GitHub Packages。将下面两行添加到用户级 `.npmrc`，通过环境变量提供有包读取权限的 GitHub PAT classic。
+安装和运行需要 Node.js 18.17.0 或更高版本。发布包位于 GitHub Packages。将下面两行添加到用户级 `.npmrc`，通过环境变量提供有包读取权限的 GitHub PAT classic。
 
 ```ini
 @deckflow:registry=https://npm.pkg.github.com
@@ -12,11 +12,11 @@
 ```
 
 ```sh
-pnpm add -g @deckflow/deckflow-cli
+npm install -g @deckflow/deckflow-cli
 deckflow --version
 ```
 
-也可以用 `pnpm add -g ./deckflow-deckflow-cli-0.1.0.tgz` 安装本地构建包。安装包自带 SDK 运行时代码。
+也可以用 `npm install -g ./deckflow-deckflow-cli-0.1.0.tgz` 安装本地构建包。安装包自带 SDK 运行时代码。
 
 ## 快速开始
 
@@ -41,7 +41,7 @@ deckflow open <file-id> --type file
 
 ## 本地开发
 
-将 DeckBase 放在相邻的 `../deckbase`。发布 CI 使用工作流中固定的 SDK 源 commit。项目采用 TypeScript 7.0.2 和 pnpm 11.21.0。
+将 DeckBase 放在相邻的 `../deckbase`。构建和测试使用 Node.js 24、TypeScript 7.0.2 和 pnpm 11.21.0。发布 CI 使用工作流中固定的 SDK 源 commit。
 
 ```sh
 pnpm --dir ../deckbase install --frozen-lockfile

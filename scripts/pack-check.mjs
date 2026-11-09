@@ -76,6 +76,7 @@ try {
   );
   npmCommand("npm", [
     "install",
+    "--engine-strict",
     "--ignore-scripts",
     "--no-audit",
     "--no-fund",

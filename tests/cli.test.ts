@@ -19,6 +19,7 @@ import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 const binary = resolve("dist/cli.js");
+const node = process.env.DECKFLOW_TEST_NODE || process.execPath;
 type Handler = (
   req: IncomingMessage,
   res: ServerResponse,
@@ -91,7 +92,7 @@ async function cli(
 ) {
   return new Promise<{ code: number | null; stdout: string; stderr: string }>(
     (done, fail) => {
-      const child = spawn(process.execPath, [binary, ...args], {
+      const child = spawn(node, [binary, ...args], {
         cwd,
         env: {
           ...process.env,
