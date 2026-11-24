@@ -1,6 +1,6 @@
 {
   "name": "@deckflow/deckflow-cli",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "description": "DeckFlow command line client for DeckBase",
   "repository": "https://github.com/deckflow/deckflow-cli.git",
