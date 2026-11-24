@@ -34,9 +34,11 @@ export class CliError extends Error {
 export const usage = (message: string) =>
   new CliError("INVALID_ARGUMENT", message);
 export const unsupported = (feature: string) =>
-  new CliError("FEATURE_NOT_SUPPORTED", `${feature}：后续支持`, 11);
+  new CliError("UNSUPPORTED_OPERATION", `${feature}：当前后端不支持`, 2);
 export type Globals = {
   space?: string;
+  ws?: string;
+  quiet?: boolean;
   json?: boolean;
   noInput?: boolean;
   input?: boolean;
@@ -56,7 +58,7 @@ export const configFields = {
   webUrl: {
     storedAs: "webRoot",
     format: "url",
-    description: "DeckBase 网页的基础地址，用于生成 deckflow open 的资源链接。",
+    description: "DeckBase 网页的基础地址，用于生成 deckflow view 的资源链接。",
     example: "https://deckbase.example.com",
   },
   space: {
@@ -242,7 +244,11 @@ export class Context {
       !opts.noInput;
     this.canOpen =
       this.interactive && Boolean(deps.tty ?? process.stdout.isTTY);
-    this.requestMs = duration(opts.timeout ?? "30s");
+    this.requestMs = duration(
+      /^\d+$/.test(opts.timeout ?? "30")
+        ? `${opts.timeout ?? "30"}s`
+        : opts.timeout!,
+    );
     this.waitMs = duration(opts.waitTimeout ?? "10m");
   }
   async initialize() {
@@ -311,19 +317,20 @@ export class Context {
     });
   }
   async spaceInfo() {
-    if (this.opts.space) return { id: this.opts.space, source: "flag" };
-    const envSpace = this.env.DECKFLOW_SPACE;
-    if (envSpace) return { id: envSpace, source: "environment" };
-    for (let dir = this.cwd; ; dir = dirname(dir)) {
-      const project = await readJson<Config>(join(dir, ".deckflow.json"));
-      if (project?.space) return { id: project.space, source: "project" };
-      if (dirname(dir) === dir) break;
-    }
+    if (this.opts.ws) return { id: this.opts.ws, source: "flag" };
+    if (this.env.DECKFLOW_WORKSPACE)
+      return { id: this.env.DECKFLOW_WORKSPACE, source: "environment" };
     return { id: (await this.config()).space, source: "user" };
   }
+
   async space() {
     const { id } = await this.spaceInfo();
-    if (!id) throw usage("请用 space use <id> 绑定工作空间，或指定 --space");
+    if (!id)
+      throw new CliError(
+        "WORKSPACE_REQUIRED",
+        "请用 ws use <id> 绑定工作空间，或指定 --ws",
+        2,
+      );
     return id;
   }
   async apiUrl() {
@@ -421,7 +428,8 @@ export function methodOf(value: string): Method {
   return value as Method;
 }
 export const isRead = (method: Method) =>
-  methods[method] === "get" &&
+  (["search.find", "search.query"].includes(method) ||
+    methods[method] === "get") &&
   ![
     "auth.checkSceneScan",
     "order.status",

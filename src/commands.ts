@@ -68,7 +68,7 @@ function configHelp(action: "get" | "set") {
     lines.push(
       "",
       "URL 必须是完整的 HTTP(S) 地址，不可包含用户名、密码、查询参数或片段。",
-      "空间 ID 可从 deckflow space list 获取，保存时会验证当前凭据的访问权限。",
+      "空间 ID 可从 deckflow ws ls 获取，保存时会验证当前凭据的访问权限。",
       "",
       "示例：",
       ...fields.map(

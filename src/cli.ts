@@ -1,6 +1,7 @@
 import { Command, CommanderError } from "commander";
 import { inspect } from "node:util";
-import { commands } from "./commands.js";
+import { commands } from "./runtime.js";
+import { randomUUID } from "node:crypto";
 import { CliError, Context, type Globals } from "./core.js";
 
 declare const __VERSION__: string;
@@ -151,8 +152,33 @@ function failure(error: unknown) {
   };
 }
 function display(result: unknown, json: boolean) {
-  const safe = redact(result) ?? null;
-  if (json) process.stdout.write(JSON.stringify(safe) + "\n");
+  const safe = result ?? null;
+  if (json)
+    process.stdout.write(
+      JSON.stringify({
+        ok: true,
+        data: safe,
+        meta: {
+          request_id: requestId,
+          workspace_id: workspaceId,
+        },
+      }) + "\n",
+    );
+  else if (
+    safe &&
+    typeof safe === "object" &&
+    "text" in safe &&
+    typeof safe.text === "string"
+  )
+    process.stdout.write(safe.text);
+  else if (
+    safe &&
+    typeof safe === "object" &&
+    "viewer_url" in safe &&
+    typeof safe.viewer_url === "string" &&
+    "url_only" in safe
+  )
+    process.stdout.write(safe.viewer_url + "\n");
   else if (
     safe &&
     typeof safe === "object" &&
@@ -170,16 +196,19 @@ function display(result: unknown, json: boolean) {
     );
 }
 
+let workspaceId: string | undefined;
+const requestId = randomUUID();
 const root = new Command()
   .name("deckflow")
   .description("DeckBase 云端文件命令行客户端")
   .version(__VERSION__)
-  .option("--space <id>", "覆盖工作空间")
+  .option("--ws <id-or-slug>", "可选：覆盖已配置的默认工作空间")
+  .option("--quiet", "减少状态输出")
   .option("--json", "输出 JSON")
   .option("--no-input", "禁用隐式交互")
   .option("--yes", "确认此操作")
   .option("--dry-run", "只预检")
-  .option("--timeout <duration>", "请求超时", "30s")
+  .option("--timeout <seconds>", "请求超时秒数", "30")
   .option("--wait-timeout <duration>", "异步任务等待时限", "10m")
   .option("--verbose", "向 stderr 输出诊断")
   .configureOutput({ writeErr: () => {} })
@@ -190,7 +219,10 @@ commands(root, (cmd, run) => {
     const command = values.at(-1) as Command;
     const options = command.opts() as Record<string, string | undefined>;
     const global = root.opts<Globals>();
+    if (!/^\d+$/.test(global.timeout ?? "30") || Number(global.timeout) <= 0)
+      throw new CliError("INVALID_ARGUMENT", "--timeout 必须为正整数秒", 2);
     const ctx = new Context(global);
+    workspaceId = (await ctx.spaceInfo()).id;
     await ctx.initialize();
     const result = await run(ctx, values.slice(0, -2) as string[], options);
     if (
@@ -234,12 +266,51 @@ try {
   else {
     const { exit, body } = failure(e);
     const safe = redact(body) as typeof body;
-    process.exitCode = exit;
+    const mapped =
+      exit === 11
+        ? 2
+        : exit === 4
+          ? 3
+          : [5, 6].includes(exit)
+            ? 4
+            : exit >= 7
+              ? 5
+              : exit;
+    const status = (safe.details as { status?: number })?.status;
+    const codeMap: Record<string, string> = {
+      AUTH_REQUIRED: "UNAUTHENTICATED",
+      FOLDER_NOT_FOUND: "OBJECT_NOT_FOUND",
+      NOT_FOUND: "OBJECT_NOT_FOUND",
+      OUTPUT_EXISTS: "OBJECT_EXISTS",
+      NETWORK_ERROR: "BACKEND_UNAVAILABLE",
+    };
+    safe.code =
+      codeMap[safe.code] ??
+      (
+        {
+          401: "UNAUTHENTICATED",
+          403: "PERMISSION_DENIED",
+          404: "OBJECT_NOT_FOUND",
+          409: "VERSION_CONFLICT",
+          429: "RATE_LIMITED",
+        } as Record<number, string>
+      )[status ?? 0] ??
+      safe.code;
+    process.exitCode = mapped;
     const json =
       root.opts<Globals>().json || process.argv.slice(2).includes("--json");
-    process.stderr.write(
+    (json ? process.stdout : process.stderr).write(
       json
-        ? JSON.stringify(safe) + "\n"
+        ? JSON.stringify({
+            ok: false,
+            error: {
+              ...safe,
+              retryable:
+                [429, 502, 503, 504].includes(status ?? 0) ||
+                safe.code === "BACKEND_UNAVAILABLE",
+            },
+            meta: { request_id: requestId },
+          }) + "\n"
         : `${safe.code}: ${safe.message}\n${Object.keys(safe.details ?? {}).length ? inspect(safe.details, { depth: null }) + "\n" : ""}`,
     );
   }

@@ -98,7 +98,7 @@ async function cli(
           ...process.env,
           DECKFLOW_API_URL: base + "/api",
           DECKFLOW_WEB_URL: base + "/web",
-          DECKFLOW_SPACE: "ws",
+          DECKFLOW_WORKSPACE: "ws",
           DECKFLOW_TOKEN: "test-token",
           HOME: temp,
           USERPROFILE: temp,
@@ -119,217 +119,258 @@ async function cli(
 }
 function result(run: Awaited<ReturnType<typeof cli>>, code = 0) {
   expect(run.code, run.stderr).toBe(code);
-  if (code !== 0) expect(run.stdout).toBe("");
-  return JSON.parse(code === 0 ? run.stdout : run.stderr);
+  const envelope = JSON.parse(run.stdout);
+  expect(envelope.ok).toBe(code === 0);
+  expect(envelope.meta.request_id).toBeTruthy();
+  return code === 0 ? envelope.data : envelope.error;
 }
-
-describe("CLI contract", () => {
-  it("registers placeholders without SDK requests and exposes file instead of doc", async () => {
-    const help = await cli(["--help"]);
-    expect(help.stdout).toMatch(/\n  file\s/);
-    expect(help.stdout).not.toMatch(/\n  doc\s/);
-    for (const command of [
-      ["find"],
-      ["search"],
-      ["ask"],
-      ["file", "archive"],
-      ["file", "restore"],
-      ["revision", "activate"],
-      ["action", "run"],
-    ]) {
-      expect(
-        result(
-          await cli([...command, "query", "--future-option", "--json"]),
-          11,
-        ).code,
-      ).toBe("FEATURE_NOT_SUPPORTED");
-    }
-    expect((await cli(["search", "--help"])).code).toBe(0);
-    expect(
-      result(await cli(["open", "f1", "--page", "4", "--json"]), 11).code,
-    ).toBe("FEATURE_NOT_SUPPORTED");
+describe("v0.3 contract", () => {
+  it("exposes the new tree without authentication or legacy verbs", async () => {
+    const run = await cli(["--help"], { DECKFLOW_TOKEN: "" });
+    expect(run.code).toBe(0);
+    for (const name of [
+      "ls",
+      "info",
+      "cat",
+      "view",
+      "cp",
+      "mv",
+      "rm",
+      "mkdir",
+      "new",
+      "put",
+      "get",
+      "find",
+      "grep",
+      "search",
+      "seek",
+      "ask",
+      "ws",
+      "ops",
+      "jobs",
+      "version",
+      "pptx",
+      "docx",
+    ])
+      expect(run.stdout).toMatch(new RegExp("\\n  " + name + "[ \\[]"));
+    for (const name of [
+      "file",
+      "folder",
+      "space",
+      "upload",
+      "download",
+      "share",
+      "album",
+      "api",
+      "open",
+    ])
+      expect(run.stdout).not.toMatch(new RegExp("\\n  " + name + "[ \\[]"));
     expect(requests).toEqual([]);
   });
-  it("lists supported keys in both config help screens", async () => {
-    const get = await cli(["config", "get", "--help"]);
-    const set = await cli(["config", "set", "--help"]);
-    expect(get.code).toBe(0);
-    expect(set.code).toBe(0);
-    for (const key of ["apiUrl", "webUrl", "space"]) {
-      expect(get.stdout).toMatch(new RegExp(`^  ${key} +\\S`, "m"));
-      expect(set.stdout).toContain(`deckflow config set ${key} `);
-    }
-    expect(requests).toEqual([]);
-  });
-  it("saves the default space and reads it with config get", async () => {
-    handler = (_, res) => json(res, { id: "new" });
-    expect(result(await cli(["space", "use", "new", "--json"]))).toEqual({
-      space: "new",
-      source: "user",
-    });
-    expect(result(await cli(["config", "get", "space", "--json"]))).toEqual({
-      key: "space",
-      value: "new",
-    });
-  });
-  it("stores credentials privately, keeps the auth UUID, and binds the token to its API root", async () => {
-    const dir = join(temp, ".deckflow");
-    const credentials = join(dir, "credentials");
-    const authUuid = join(dir, "auth-uuid");
-    handler = (_, res) => json(res, { id: "user", name: "Test" });
-    const env = { DECKFLOW_TOKEN: "", DECKFLOW_API_URL: "" };
-
-    await Promise.all([
-      cli(["config", "set", "apiUrl", base + "/api", "--json"]),
-      cli(["config", "set", "webUrl", base + "/web", "--json"]),
-    ]).then((runs) => runs.forEach((run) => result(run)));
-
-    const uuid = await readFile(authUuid, "utf8");
-    expect(uuid.trim()).toMatch(/^[a-f0-9-]{36}$/);
-    result(
-      await cli(
-        ["auth", "login", "--token-stdin", "--json"],
-        env,
-        temp,
-        "stored-token",
-      ),
-    );
-    result(await cli(["space", "use", "test-space", "--json"], env));
-
-    expect(JSON.parse(await readFile(credentials, "utf8"))).toMatchObject({
-      apiRoot: base + "/api",
-      webRoot: base + "/web",
-      spaceId: "test-space",
-      token: "stored-token",
-    });
-    if (process.platform !== "win32")
-      expect((await stat(credentials)).mode & 0o777).toBe(0o600);
-    expect(result(await cli(["config", "list", "--json"], env))).toEqual({
-      apiUrl: base + "/api",
-      webUrl: base + "/web",
-      space: "test-space",
-    });
-    expect(result(await cli(["auth", "status", "--json"], env)).source).toBe(
-      "credential-store",
-    );
-    expect(requests.at(-1)?.auth).toBe("Bearer stored-token");
-    const count = requests.length;
-    expect(
-      result(
-        await cli(["auth", "status", "--json"], {
-          ...env,
-          DECKFLOW_API_URL: base + "/other",
-        }),
-        3,
-      ).code,
-    ).toBe("AUTH_REQUIRED");
-    expect(requests).toHaveLength(count);
-
-    result(await cli(["auth", "logout", "--json"], env));
-    expect(JSON.parse(await readFile(credentials, "utf8"))).toEqual({
-      apiRoot: base + "/api",
-      webRoot: base + "/web",
-      spaceId: "test-space",
-    });
-    expect(await readFile(authUuid, "utf8")).toBe(uuid);
-  });
-  it("honors space precedence and applies SDK pagination", async () => {
-    await mkdir(join(temp, "child"));
-    await mkdir(join(temp, ".deckflow"));
-    await writeFile(
-      join(temp, ".deckflow", "credentials"),
-      JSON.stringify({ spaceId: "user" }),
-    );
-    await writeFile(
-      join(temp, ".deckflow.json"),
-      JSON.stringify({ space: "project" }),
-    );
-    handler = (_, res, path) => json(res, { id: path.split("/")[3] });
-    const args = ["file", "list", "--limit", "4", "--offset", "3", "--json"];
-    result(await cli([...args, "--space", "flag"]));
-    result(await cli(args));
-    result(await cli(args, { DECKFLOW_SPACE: "" }, join(temp, "child")));
-    await rm(join(temp, ".deckflow.json"));
-    result(await cli(args, { DECKFLOW_SPACE: "" }));
-    expect(requests.map((r) => r.path)).toEqual(
-      ["flag", "ws", "project", "user"].map(
-        (id) => `/api/spaces/${id}/files?_maxResults=4&_startIndex=3`,
-      ),
-    );
-  });
-  it("maps authorization and billing failures without echoing credentials", async () => {
-    handler = (_, res) =>
-      json(
-        res,
-        { code: "AUTH_INVALID", message: "test-token dbk_secret" },
-        401,
-      );
-    const auth = await cli(["auth", "status", "--json", "--verbose"]);
-    expect(auth.code).toBe(3);
-    expect(auth.stdout).toBe("");
-    expect(auth.stderr).not.toMatch(/test-token|dbk_secret/);
-    expect(requests[0].auth).toBe("Bearer test-token");
-    expect(requests[0].path).toBe("/api/user?_full=no");
-    handler = (_, res) => json(res, { code: "STORAGE_WRITE_RESTRICTED" }, 403);
-    expect(result(await cli(["usage", "--json"]), 7).code).toBe(
-      "STORAGE_WRITE_RESTRICTED",
-    );
-  });
-  it("preflights destructive calls and uses the read row version exactly once", async () => {
-    handler = (req, res, _, data) => {
-      if (req.method === "GET") json(res, sampleFile);
-      else {
-        expect(JSON.parse(data.toString())).toEqual({ expectedRowVersion: 8 });
-        json(res, { code: "STALE" }, 409);
-      }
-    };
-    expect(
-      result(await cli(["file", "delete", "f1", "--dry-run", "--json"])).dryRun,
-    ).toBe(true);
-    expect(requests.map((r) => r.method)).toEqual(["GET"]);
-    expect(
-      result(await cli(["file", "delete", "f1", "--no-input", "--json"]), 2)
-        .code,
-    ).toBe("INVALID_ARGUMENT");
-    expect(
-      result(await cli(["file", "delete", "f1", "--yes", "--json"]), 6).code,
-    ).toBe("STALE");
-    expect(requests.filter((r) => r.method === "DELETE")).toHaveLength(1);
-  });
-  it("reads explicit stdin JSON and blocks SDK writes by default", async () => {
-    const args = ["api", "file.modify", "--input", "-", "--json"];
-    const body = JSON.stringify({
-      spaceId: "ws",
-      fileId: "f1",
-      expectedRowVersion: 8,
-      name: "new.pdf",
-    });
-    expect(result(await cli(args, {}, temp, body), 2).code).toBe(
+  it("emits failures on stdout and rejects old parameters", async () => {
+    expect(result(await cli(["ls", "--space", "ws", "--json"]), 2).code).toBe(
       "INVALID_ARGUMENT",
     );
     expect(
-      result(await cli([...args, "--dry-run"], {}, temp, body)).writes,
-    ).toBe(true);
+      result(await cli(["ls", "--timeout", "30s", "--json"]), 2).code,
+    ).toBe("INVALID_ARGUMENT");
+    expect(
+      result(
+        await cli(["ls", "--json"], {
+          DECKFLOW_WORKSPACE: "",
+          DECKFLOW_SPACE: "ignored",
+        }),
+        2,
+      ).code,
+    ).toBe("WORKSPACE_REQUIRED");
+  });
+  it("uses the persisted default when --ws is omitted and keeps overrides temporary", async () => {
+    handler = (_req, res, path) => {
+      if (path.includes("/folders") || path.includes("/files"))
+        return json(res, { rows: [], count: 0 });
+      if (path.startsWith("/api/spaces/"))
+        return json(res, { id: path.split("/").at(-1), name: "Default" });
+    };
+    const env = { DECKFLOW_WORKSPACE: "" };
+    result(await cli(["ws", "use", "saved", "--json"], env));
+    const saved = JSON.parse(
+      await readFile(join(temp, ".deckflow", "credentials"), "utf8"),
+    );
+    expect(saved.spaceId).toBe("saved");
+    requests = [];
+    const first = await cli(["ls", "/", "--json"], env);
+    expect(result(first).items).toEqual([]);
+    expect(JSON.parse(first.stdout).meta.workspace_id).toBe("saved");
+    expect(requests.every((r) => r.path.includes("/spaces/saved/"))).toBe(true);
+    requests = [];
+    result(
+      await cli(["ls", "/", "--json"], { DECKFLOW_WORKSPACE: "environment" }),
+    );
+    expect(requests.every((r) => r.path.includes("/spaces/environment/"))).toBe(
+      true,
+    );
+    requests = [];
+    result(
+      await cli(["ls", "/", "--ws", "explicit", "--json"], {
+        DECKFLOW_WORKSPACE: "environment",
+      }),
+    );
+    expect(requests.every((r) => r.path.includes("/spaces/explicit/"))).toBe(
+      true,
+    );
+    requests = [];
+    result(await cli(["ls", "/", "--json"], env));
+    expect(requests.every((r) => r.path.includes("/spaces/saved/"))).toBe(true);
+  });
+  it("reads defaults saved through config set without requiring --ws", async () => {
+    handler = (_req, res, path) =>
+      path.includes("/folders") || path.includes("/files")
+        ? json(res, { rows: [], count: 0 })
+        : json(res, { id: "configured" });
+    const env = { DECKFLOW_WORKSPACE: "" };
+    result(await cli(["config", "set", "space", "configured", "--json"], env));
+    requests = [];
+    result(await cli(["ls", "/", "--json"], env));
+    expect(requests.length).toBeGreaterThan(0);
+    expect(requests.every((r) => r.path.includes("/spaces/configured/"))).toBe(
+      true,
+    );
+  });
+  it("registers strict discoverable unsupported capabilities", async () => {
+    for (const args of [
+      ["search", "hello"],
+      ["ops", "extract", "/x", "--type", "text"],
+      ["jobs", "cancel", "x"],
+      ["pptx", "info", "/x"],
+      ["ws", "new", "alpha"],
+    ])
+      expect(result(await cli([...args, "--json"]), 2).code).toBe(
+        "NOT_IMPLEMENTED",
+      );
+    expect(
+      result(await cli(["search", "hello", "--typo", "--json"]), 2).code,
+    ).toBe("INVALID_ARGUMENT");
     expect(requests).toEqual([]);
-    handler = (_, res, path, data) => {
-      expect(path).toBe("/api/spaces/ws/files/f1");
-      expect(JSON.parse(data.toString())).toEqual({
-        expectedRowVersion: 8,
-        name: "new.pdf",
-      });
-      json(res, { ...sampleFile, name: "new.pdf" });
+  });
+  it("blocks soft deletion and root deletion without requests", async () => {
+    expect(result(await cli(["rm", "/x", "--json"]), 2).code).toBe(
+      "UNSUPPORTED_OPERATION",
+    );
+    expect(
+      result(await cli(["rm", "/", "--permanent", "--yes", "--json"]), 2).code,
+    ).toBe("INVALID_ARGUMENT");
+    expect(requests).toEqual([]);
+  });
+  it("lists mixed objects with bound continuation cursors", async () => {
+    handler = (_, res, path) => {
+      if (path.includes("/folders"))
+        return json(res, {
+          rows: [{ id: "d1", name: "A", parentId: null, rowVersion: 1 }],
+          count: 1,
+        });
+      if (path.includes("/files"))
+        return json(res, { rows: [sampleFile], count: 1 });
+    };
+    const first = result(
+      await cli(["--ws", "selected", "ls", "/", "--limit", "1", "--json"]),
+    );
+    expect(first.items[0].kind).toBe("directory");
+    expect(first.items[0].path).toBe("/A");
+    expect(first.next_cursor).toBeTruthy();
+    const second = result(
+      await cli([
+        "ls",
+        "/",
+        "--ws",
+        "selected",
+        "--limit",
+        "1",
+        "--cursor",
+        first.next_cursor,
+        "--json",
+      ]),
+    );
+    expect(second.items[0].id).toBe("f1");
+    expect(second.next_cursor).toBeNull();
+    expect(requests.every((r) => r.path.includes("/selected/"))).toBe(true);
+    expect(
+      result(await cli(["ls", "/", "--cursor", first.next_cursor, "--json"]), 2)
+        .code,
+    ).toBe("INVALID_ARGUMENT");
+  });
+  it("preserves text exactly without generic redaction", async () => {
+    const text = "dbk_example https://example.com/?token=literal\n";
+    handler = (_, res, path) => {
+      if (path.startsWith("/content")) return res.end(text);
+      if (path.endsWith("/content"))
+        return json(res, {
+          mediaType: "text/plain",
+          url: base + "/content",
+          bytes: Buffer.byteLength(text),
+        });
+      if (path.includes("/folders")) return json(res, { rows: [], count: 0 });
+      if (path.includes("/files"))
+        return json(res, {
+          rows: [{ ...sampleFile, name: "text.txt" }],
+          count: 1,
+        });
+    };
+    expect((await cli(["cat", "/text.txt"])).stdout).toBe(text);
+    expect(result(await cli(["cat", "/text.txt", "--json"])).text).toBe(text);
+    expect(requests.every((r) => r.method === "GET")).toBe(true);
+  });
+  it("returns missing previews without scheduling processing", async () => {
+    handler = (_, res, path) => {
+      if (path.includes("/conversions")) return json(res, { items: [] });
+      if (path.includes("/folders")) return json(res, { rows: [], count: 0 });
+      if (path.includes("/files"))
+        return json(res, { rows: [sampleFile], count: 1 });
     };
     expect(
-      result(await cli([...args, "--yes", "--no-input"], {}, temp, body)).name,
-    ).toBe("new.pdf");
+      result(await cli(["view", "/示例 file.pdf", "--json"]), 2).code,
+    ).toBe("PREVIEW_NOT_AVAILABLE");
+    expect(requests.every((r) => r.method === "GET")).toBe(true);
+  });
+  it("rejects traversal and invalid page combinations before requests", async () => {
+    for (const path of ["relative", "/a/../b", "/a//b"])
+      expect(result(await cli(["info", path, "--json"]), 2).code).toBe(
+        "INVALID_ARGUMENT",
+      );
+    expect(
+      result(
+        await cli(["view", "/x", "--page", "1", "--pages", "1-3", "--json"]),
+        2,
+      ).code,
+    ).toBe("INVALID_ARGUMENT");
+    expect(requests).toEqual([]);
+  });
+  it("maps permissions and diagnostics without leaking tokens", async () => {
+    handler = (_, res) =>
+      json(res, { code: "notAllowed", message: "test-token" }, 403);
+    const run = await cli(["ws", "info", "ws", "--json"]);
+    expect(result(run, 3).code).toBe("PERMISSION_DENIED");
+    expect(run.stdout + run.stderr).not.toContain("test-token");
+  });
+  it("returns declared capabilities as standard lists", async () => {
+    const caps = result(await cli(["ops", "capabilities", "--json"]));
+    expect(caps.items).toHaveLength(2);
+    expect(caps.availability).toBe("unknown");
+    expect(
+      result(await cli(["docx", "capabilities", "--json"])).implemented,
+    ).toBe(false);
   });
 });
 
-describe("file transfer", () => {
+describe("transfer regressions", () => {
   it("streams empty and Unicode files through signed storage and commits idempotently", async () => {
     await writeFile(join(temp, "空 文件.pdf"), "");
     let committed = false;
     handler = (req, res, path, body) => {
+      if (
+        req.method === "GET" &&
+        (path.includes("/folders") || path.includes("/files?"))
+      )
+        return json(res, { rows: [], count: 0 });
       if (path === "/api/spaces/ws") return json(res, { regionId: "region" });
       if (path === "/api/regions")
         return json(res, {
@@ -377,7 +418,7 @@ describe("file transfer", () => {
         });
     };
     const uploaded = result(
-      await cli(["file", "upload", "空 文件.pdf", "--json"]),
+      await cli(["put", "空 文件.pdf", "/空 文件.pdf", "--json"]),
     );
     expect(uploaded).toMatchObject({
       fileId: "f1",
@@ -385,7 +426,16 @@ describe("file transfer", () => {
       bytes: 0,
     });
     expect(
-      result(await cli(["upload", "--resume", uploaded.operationId, "--json"])),
+      result(
+        await cli([
+          "put",
+          "空 文件.pdf",
+          "/空 文件.pdf",
+          "--resume",
+          uploaded.operationId,
+          "--json",
+        ]),
+      ),
     ).toMatchObject({ fileId: "f1", revisionId: "r1" });
     expect(
       requests.filter((r) => r.path === "/api/spaces/ws/files"),
@@ -393,11 +443,21 @@ describe("file transfer", () => {
     await writeFile(join(temp, "空 文件.pdf"), "changed");
     expect(
       result(
-        await cli(["upload", "--resume", uploaded.operationId, "--json"]),
-        6,
+        await cli([
+          "put",
+          "空 文件.pdf",
+          "/空 文件.pdf",
+          "--resume",
+          uploaded.operationId,
+          "--json",
+        ]),
+        4,
       ).code,
     ).toBe("SOURCE_CHANGED");
   });
+});
+
+describe("transfer recovery and integrity", () => {
   it("resumes a failed multipart upload using completed part ETags", async () => {
     const size = 32 * 1024 ** 2;
     await writeFile(join(temp, "big.pptx"), "");
@@ -405,6 +465,11 @@ describe("file transfer", () => {
     const uploaded = new Map<number, string>();
     let failed = false;
     handler = (req, res, path, body) => {
+      if (
+        req.method === "GET" &&
+        (path.includes("/folders") || path.includes("/files?"))
+      )
+        return json(res, { rows: [], count: 0 });
       const session = { id: "up", status: "pending", multipart: true };
       if (path === "/api/spaces/ws") return json(res, { regionId: "region" });
       if (path === "/api/regions")
@@ -457,11 +522,21 @@ describe("file transfer", () => {
       }
       if (path.endsWith("/files")) return json(res, sampleFile, 201);
     };
-    const first = result(await cli(["upload", "big.pptx", "--json"]), 8);
+    const first = result(
+      await cli(["put", "big.pptx", "/big.pptx", "--json"]),
+      5,
+    );
     expect(first.details.operationId).toBeTruthy();
     expect(
       result(
-        await cli(["upload", "--resume", first.details.operationId, "--json"]),
+        await cli([
+          "put",
+          "big.pptx",
+          "/big.pptx",
+          "--resume",
+          first.details.operationId,
+          "--json",
+        ]),
       ).fileId,
     ).toBe("f1");
     expect(requests.filter((r) => r.path === "/part/1")).toHaveLength(1);
@@ -489,13 +564,13 @@ describe("file transfer", () => {
         return res.end(corrupt ? "bad" : "pdf");
       }
     };
-    const args = ["download", "f1", "--output", "本地 file.pdf", "--json"];
+    const args = ["get", "id:f1", "本地 file.pdf", "--json"];
     expect(result(await cli(args)).bytes).toBe(3);
     const target = join(temp, "本地 file.pdf");
     expect(await readFile(target, "utf8")).toBe("pdf");
-    expect(result(await cli(args), 6).code).toBe("OUTPUT_EXISTS");
+    expect(result(await cli(args), 4).code).toBe("OBJECT_EXISTS");
     corrupt = true;
-    expect(result(await cli([...args, "--overwrite"]), 9).code).toBe(
+    expect(result(await cli([...args, "--force"]), 5).code).toBe(
       "DOWNLOAD_INTEGRITY_FAILED",
     );
     expect(await readFile(target, "utf8")).toBe("pdf");
@@ -505,283 +580,91 @@ describe("file transfer", () => {
   });
 });
 
-it("restores a new revision and creates a new file from an existing conversion artifact", async () => {
-  const keys = new Set<string>();
-  handler = (req, res, path, data) => {
-    if (path.endsWith("/files/f1")) return json(res, sampleFile);
-    if (path.endsWith("/revisions/r1")) return json(res, { id: "r1" });
-    if (path.endsWith("/restore")) {
-      expect(JSON.parse(data.toString())).toMatchObject({
-        expectedCurrentRevisionId: "r1",
-      });
-      return json(res, { id: "r2", restoredFromRevisionId: "r1" }, 201);
-    }
-    if (path.endsWith("/conversions"))
-      return json(res, { operationId: "convert" }, 202);
-    if (path.endsWith("/conversions/convert"))
-      return json(res, {
-        operationId: "convert",
-        status: "succeeded",
-        outputs: [{ artifactId: "artifact", itemId: "item", format: "pdf" }],
-      });
-    if (path.endsWith("/files") && req.method === "POST") {
-      const body = JSON.parse(data.toString());
-      expect(body.source).toEqual({
-        type: "artifact",
-        sourceFileId: "f1",
-        sourceRevisionId: "r1",
-        sourceArtifactId: "artifact",
-        itemId: "item",
-      });
-      keys.add(body.idempotencyKey);
-      return json(res, { ...sampleFile, id: "new" }, 201);
-    }
-  };
-  expect(
-    result(
-      await cli([
-        "revision",
-        "restore",
-        "r1",
-        "--file",
-        "f1",
-        "--yes",
-        "--json",
-      ]),
-    ).id,
-  ).toBe("r2");
-  const conversion = result(
-    await cli(["file", "convert", "f1", "--to", "pdf", "--yes", "--json"]),
-  );
-  expect(conversion.fileId).toBe("new");
-  expect(
-    result(
-      await cli([
-        "file",
-        "convert",
-        "--resume",
-        conversion.operationId,
-        "--yes",
-        "--json",
-      ]),
-    ).fileId,
-  ).toBe("new");
-  expect(requests.filter((r) => r.path.endsWith("/conversions"))).toHaveLength(
-    1,
-  );
-  expect(keys.size).toBe(1);
-  expect(
-    requests.filter((r) => r.method === "POST" && r.path.endsWith("/files")),
-  ).toHaveLength(1);
-});
-
-it("reports share partial success, then disables the page with its current row version", async () => {
-  handler = (req, res, path, data) => {
-    if (/\/files\/f[12]$/.test(path)) return json(res, sampleFile);
-    if (path.endsWith("/share-pages"))
-      return json(res, { id: "sp", slug: "slug", rowVersion: 0 }, 201);
-    if (path.endsWith("/share-pages/sp/items")) {
-      const body = JSON.parse(data.toString());
-      if (body.fileId === "f1") {
-        expect(body.rowVersion).toBe(0);
-        return json(res, { item: { id: "item" }, rowVersion: 1 }, 201);
+describe("processing adapters", () => {
+  it("submits derivatives without creating managed files", async () => {
+    handler = (req, res, path, body) => {
+      if (path.includes("/folders")) return json(res, { rows: [], count: 0 });
+      if (path.includes("/conversions") && req.method === "POST") {
+        expect(JSON.parse(body.toString()).target).toBe("pdf");
+        return json(res, { operationId: "op", status: "queued", outputs: [] });
       }
-      expect(body.rowVersion).toBe(1);
-      return json(res, { code: "CONFLICT" }, 409);
-    }
-    if (path.endsWith("/share-pages/sp") && req.method === "GET")
-      return json(res, {
-        page: { slug: "slug", rowVersion: 1 },
-        items: [],
-        gates: [],
-      });
-    if (path.endsWith("/share-pages/sp") && req.method === "PUT") {
-      expect(JSON.parse(data.toString())).toEqual({
-        rowVersion: 1,
-        status: "disabled",
-      });
-      return json(res, { status: "disabled" });
-    }
-  };
-  const share = result(
-    await cli([
-      "share",
-      "create",
-      "--title",
-      "Share",
-      "--files",
-      "f1,f2",
-      "--yes",
-      "--json",
-    ]),
-    10,
-  );
-  expect(share.details).toMatchObject({
-    id: "sp",
-    results: [{ ok: true }, { ok: false }],
+      if (path.includes("/files"))
+        return json(res, { rows: [sampleFile], count: 1 });
+    };
+    const task = result(
+      await cli(["ops", "convert", "/示例 file.pdf", "--to", "pdf", "--json"]),
+    );
+    expect(task.job_id).toMatch(/^dfj1\./);
+    expect(task.state).toBe("queued");
+    expect(requests.filter((r) => r.method === "POST")).toHaveLength(1);
+    expect(
+      result(
+        await cli(["jobs", "status", task.job_id, "--ws", "other", "--json"]),
+        2,
+      ).code,
+    ).toBe("INVALID_ARGUMENT");
   });
-  expect(result(await cli(["share", "open", "sp", "--url", "--json"]))).toEqual(
-    { url: base + "/web/share/slug", opened: false },
-  );
-  expect(
-    result(await cli(["share", "revoke", "sp", "--yes", "--json"])).status,
-  ).toBe("disabled");
-});
-
-it("previews a directory without writes, preserves subfolders and reports upload partial success", async () => {
-  await mkdir(join(temp, "source", "child"), { recursive: true });
-  await writeFile(join(temp, "source", "a.txt"), "a");
-  await writeFile(join(temp, "source", "child", "b.txt"), "b");
-  const options = [
-    "upload",
-    "source",
-    "--recursive",
-    "--folder",
-    "/Reports",
-    "--create-folders",
-    "--json",
-  ];
-  const preview = result(await cli([...options, "--dry-run"]));
-  expect(preview).toMatchObject({
-    dryRun: true,
-    costStatus: "unknown",
-    relativeFolders: ["child"],
-  });
-  expect(requests.every((r) => r.method === "GET")).toBe(true);
-  const folders: { id: string; parentId: string | null; name: string }[] = [];
-  handler = (req, res, path, data) => {
-    if (path === "/api/spaces/ws") return json(res, { regionId: "region" });
-    if (path === "/api/regions")
-      return json(res, {
-        rows: [{ id: "region", capabilities: {} }],
-        count: 1,
-      });
-    if (path.includes("/folders?")) {
-      const parent = new URL(base + path).searchParams.get("parentId");
-      const rows = folders.filter((f) => f.parentId === parent);
-      return json(res, { rows, count: rows.length });
-    }
-    if (path.endsWith("/folders") && req.method === "POST") {
-      const folder = {
-        ...JSON.parse(data.toString()),
-        id: "folder" + folders.length,
-      };
-      folders.push(folder);
-      return json(res, folder, 201);
-    }
-    if (path.endsWith("/upload-sessions")) {
-      const body = JSON.parse(data.toString());
-      if (body.name === "b.txt")
-        return json(res, { code: "STORAGE_WRITE_RESTRICTED" }, 403);
-      return json(res, {
-        id: "up",
-        status: "pending",
-        upload: { url: base + "/signed", method: "PUT", headers: {} },
-      });
-    }
-    if (path === "/signed") return res.writeHead(200).end();
-    if (path.endsWith("/complete"))
-      return json(res, { id: "up", status: "verified" });
-    if (path.endsWith("/files")) {
-      expect(JSON.parse(data.toString()).folderId).toBe("folder0");
-      return json(res, sampleFile, 201);
-    }
-  };
-  const partial = result(await cli([...options, "--yes"]), 10);
-  expect(partial.details.results).toMatchObject([
-    { ok: true },
-    { ok: false, exitCode: 7 },
-  ]);
-  expect(folders).toMatchObject([
-    { name: "Reports", parentId: null },
-    { name: "child", parentId: "folder0" },
-  ]);
-});
-
-it("reports an expired session with its ID without creating a new session", async () => {
-  await writeFile(join(temp, "file.txt"), "text");
-  handler = (_, res, path) => {
-    if (path === "/api/spaces/ws") return json(res, { regionId: "region" });
-    if (path === "/api/regions") return json(res, { rows: [], count: 0 });
-    if (
-      path.endsWith("/upload-sessions") ||
-      path.endsWith("/upload-sessions/expired")
-    )
-      return json(res, { id: "expired", status: "expired" });
-  };
-  const first = result(await cli(["upload", "file.txt", "--json"]), 6);
-  expect(first.details.uploadSessionId).toBe("expired");
-  expect(
-    result(
-      await cli(["upload", "--resume", first.details.operationId, "--json"]),
-      6,
-    ).code,
-  ).toBe("TASK_FAILED");
-  expect(requests.filter((r) => r.method === "POST")).toHaveLength(1);
-});
-
-it("uses the album configuration schema and the album pagination dialect", async () => {
-  handler = (req, res, path, data) => {
-    if (path.endsWith("/folders/folder")) return json(res, { id: "folder" });
-    if (path.endsWith("/albums") && req.method === "POST") {
-      const body = JSON.parse(data.toString());
-      expect(body.config).toMatchObject({
-        title: "Weekly",
-        folderId: "folder",
-        publicEnabled: false,
-        paymentEnabled: false,
-        downloadPolicy: "disabled",
-      });
-      return json(res, { id: "album", folderId: "folder" }, 201);
-    }
-    if (path.endsWith("/albums/album") && req.method === "GET")
-      return json(res, { id: "album", title: "Weekly", rowVersion: 7 });
-    if (path.endsWith("/albums/album") && req.method === "PUT") {
-      expect(JSON.parse(data.toString())).toMatchObject({
-        rowVersion: 7,
-        config: { title: "New" },
-      });
-      return json(res, { id: "album", title: "New" });
-    }
-    if (path === "/api/spaces/ws/albums/album/subscriptions?limit=3&offset=2")
-      return json(res, { rows: [] });
-  };
-  expect(
-    result(
+  it("persists only explicitly requested output and retains source provenance", async () => {
+    handler = (req, res, path, body) => {
+      if (path.includes("/folders")) return json(res, { rows: [], count: 0 });
+      if (path.includes("/conversions/op"))
+        return json(res, {
+          operationId: "op",
+          status: "succeeded",
+          outputs: [
+            {
+              artifactId: "a1",
+              ordinal: 0,
+              format: "pdf",
+              mediaType: "application/pdf",
+            },
+          ],
+        });
+      if (path.includes("/conversions"))
+        return json(res, { operationId: "op", status: "queued", outputs: [] });
+      if (path.endsWith("/files") && req.method === "POST") {
+        expect(JSON.parse(body.toString())).toMatchObject({
+          folderId: null,
+          name: "export.pdf",
+          source: { type: "artifact", sourceArtifactId: "a1" },
+        });
+        return json(res, { ...sampleFile, id: "export" });
+      }
+      if (path.includes("/files"))
+        return json(res, { rows: [sampleFile], count: 1 });
+    };
+    const done = result(
       await cli([
-        "album",
-        "create",
-        "--name",
-        "Weekly",
-        "--folder",
-        "folder",
-        "--yes",
+        "ops",
+        "convert",
+        "/示例 file.pdf",
+        "--to",
+        "pdf",
+        "--output",
+        "/export.pdf",
         "--json",
       ]),
-    ).id,
-  ).toBe("album");
-  expect(
-    result(
-      await cli(
-        ["album", "update", "album", "--input", "-", "--yes", "--json"],
-        {},
-        temp,
-        '{"title":"New"}',
-      ),
-    ).title,
-  ).toBe("New");
-  expect(
-    result(
-      await cli([
-        "album",
-        "subscribers",
-        "album",
-        "--limit",
-        "3",
-        "--offset",
-        "2",
-        "--json",
-      ]),
-    ).rows,
-  ).toEqual([]);
+    );
+    expect(done.output[0].id).toBe("export");
+  });
+  it("keeps regex and semantic retrieval distinct", async () => {
+    handler = (_, res, path, body) => {
+      const p = JSON.parse(body.toString());
+      if (path.endsWith("/find")) {
+        expect(p.mode).toBe("regex");
+        expect(p.caseSensitive).toBe(false);
+      } else {
+        expect(p.rewrite).toBe(false);
+        expect(p.mode).toBeUndefined();
+      }
+      return json(res, { hits: [], nextCursor: null });
+    };
+    expect(
+      result(await cli(["grep", "ARR.*", "--ignore-case", "--json"]))
+        .retrieval_mode,
+    ).toBe("regex");
+    expect(
+      result(await cli(["seek", "concept", "--json"])).retrieval_mode,
+    ).toBe("semantic");
+  });
 });

@@ -24,17 +24,18 @@ deckflow --version
 deckflow config set apiUrl https://deckbase.example.com/api
 deckflow config set webUrl https://deckbase.example.com
 deckflow auth login
-deckflow space list
-deckflow space use <space-id>
-deckflow folder create Reports
-deckflow upload ./report.pdf --folder /Reports
-deckflow file list --folder /Reports --json
-deckflow download <file-id> --output ./downloaded-report.pdf
-deckflow open <file-id> --type file
+deckflow ws ls
+deckflow ws use <space-id>
+deckflow mkdir /Reports
+deckflow put ./report.pdf /Reports/report.pdf
+deckflow ls /Reports --json
+deckflow get id:<file-id> ./downloaded-report.pdf
+deckflow view id:<file-id> --url
 ```
 
 从 DeckBase WebUI 的 API Key 页面获取密钥。交互登录会隐藏输入，并将 Token 和对应 API 地址存入 `~/.deckflow/credentials`。CI 通过密钥管理器设置 `DECKFLOW_TOKEN`，可以直接运行命令。
 
+- [v0.3 迁移说明](docs/migration-v03.md)
 - [命令参考与支持矩阵](docs/commands.md)
 - [认证与工作空间](docs/auth-and-workspaces.md)
 - [Agent 与 CI](docs/automation.md)

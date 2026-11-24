@@ -1,19 +1,21 @@
 import { readFileSync, writeFileSync } from "node:fs";
-
-const source = readFileSync(
-  new URL("../../deckbase/src/service/routes-map.ts", import.meta.url),
-  "utf8",
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
+const require = createRequire(import.meta.url);
+const entry = require.resolve("@deckflow/deckbase-sdk");
+const source = readFileSync(entry, "utf8");
+const declarations = readFileSync(join(dirname(entry), "index.d.ts"), "utf8");
+const declared = new Set(
+  [...declarations.matchAll(/"([\w.-]+)":\s*\{\s*params:/g)].map((x) => x[1]),
 );
 const routes = Object.fromEntries(
-  [
-    ...source.matchAll(
-      /"([\w.-]+)":\s*\[\s*"\/[^"]*",\s*"([a-z]+)"\s*,?\s*\]/g,
-    ),
-  ].map(([, method, verb]) => [method, verb]),
+  [...source.matchAll(/"([\w.-]+)":\s*\[\s*"\/[^"]*",\s*"([a-z]+)"\s*,?\s*\]/g)]
+    .filter((x) => declared.has(x[1]))
+    .map(([, method, verb]) => [method, verb]),
 );
-if (!routes["file.detail"] || !routes["file.remove"])
-  throw Error("无法读取 DeckBase SDK 路由元数据");
+if (!routes["file.detail"] || !routes["search.query"])
+  throw Error("SDK 缺少 v0.3 必需接口");
 writeFileSync(
   new URL("../src/sdk-methods.generated.ts", import.meta.url),
-  `import type { Method } from "@deckflow/deckbase-sdk";\nexport const methods = ${JSON.stringify(routes, null, 2)} satisfies Record<Method, string>;\n`,
+  `import type { Method } from "@deckflow/deckbase-sdk";\nexport const methods = ${JSON.stringify(routes, null, 2)} satisfies Record<Method,string>;\n`,
 );

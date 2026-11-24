@@ -1,50 +1,40 @@
 # 命令参考
 
-参数详情以各命令的 `--help` 为准。以下命令均以 `deckflow` 开头。
+所有命令支持 `--json`；详情见各命令 `--help`。对象接受绝对工作空间路径或 `id:<id>`，本地路径仅用于 put/get。相对远端路径不受支持。
 
-| 命令                                              | DeckBase SDK 或本地行为                                                   |
-| ------------------------------------------------- | ------------------------------------------------------------------------- |
-| `auth login/logout/status`                        | 本地凭据文件、`user.self`                                                 |
-| `config list/get/set`、`status`                   | 用户配置、身份及有效工作空间                                              |
-| `space list/get/create/use/members`               | `my.spaces`、`space.detail`、`my.addSpace`、项目或用户绑定、`space.users` |
-| `upload` / `file upload`                          | `uploadSession.*`、签名存储、`file.add`                                   |
-| `download` / `file download`                      | `file.content` 或 `revision.content`、签名交付                            |
-| `file list/get/update/move/delete`                | `file.list/detail/modify/move/remove`                                     |
-| `file convert`                                    | `conversion.add/detail`，再以 artifact source 调用 `file.add`             |
-| `file conversion list/get`                        | `conversion.list/detail`                                                  |
-| `file creation get`、`file deletion get`          | `file.creationDetail`、`deletionJob.detail`                               |
-| `revision list/get/upload/restore/delete`         | `revision.list/detail/add/restore/remove`                                 |
-| `folder list/get/create/update/move/delete`       | `folder.list/detail/add/modify/move/remove`                               |
-| `share list/get/create/update/revoke/open`        | `sharePage.list/detail/add/addItem/modify`、浏览器                        |
-| `album list/get/create/update/delete/subscribers` | `album.list/detail/add/modify/remove/subscriptions`                       |
-| `usage [summary\|storage\|traffic\|credits]`      | `billing.detail`，遵循服务端管理员权限                                    |
-| `open <id>`                                       | 读取工作空间资源详情并生成现有 WebUI 地址                                 |
-| `api <sdk-method> --input <json-file\|->`         | SDK 直通。非只读操作必须显式 `--yes`                                      |
+| 命令              | 行为                                                                            |
+| ----------------- | ------------------------------------------------------------------------------- |
+| ls / info         | 混合列表、递归、元数据与不透明版本标识                                          |
+| mkdir             | 创建目录，`--parents` 允许创建父目录                                            |
+| new               | 空文本、`--content` 文本或 `--from-stdin` 字节；显式 MIME 当前仅支持 text/plain |
+| put / get         | 原始字节上传下载；`--force` 覆盖，远端覆盖追加同类型版本并保留 ID               |
+| cp                | 文件与递归目录复制；目标存在时拒绝覆盖                                          |
+| mv                | 同目录改名或保持名称跨目录移动；同时移动改名不支持                              |
+| rm                | 默认软删除当前不支持；`--permanent --yes` 进入真实删除任务                      |
+| cat               | 仅现成 UTF-8 原文，无自动提取或 AI 理解                                         |
+| view              | 当前 revision 的已有预览；返回 artifact 获取描述；`--url` 只输出 viewer 链接    |
+| find              | 元数据名称 glob、类型、创建日期过滤                                             |
+| grep / seek / ask | RE2 内容匹配、语义检索、带真实依据的问答                                        |
+| search            | lexical/hybrid 模式缺接口，返回 NOT_IMPLEMENTED                                 |
+| ws                | ls/info/use、usage/quota/balance/members、invite/remove/role、edit --name       |
+| ops               | capabilities、convert --to pdf、render --to webp；指定 --output 才创建受管文件  |
+| jobs              | status/result 接受返回的 dfj1 句柄，可跨机器查询；ls/cancel 不支持              |
+| version           | ls、restore --to REVISION_ID；恢复创建新版本                                    |
+| pptx / docx       | capabilities；结构 info 尚未实现                                                |
 
-`find`、`search`、`ask`、`file archive/restore`、`revision activate` 和 `action list/run/status/cancel` 为占位命令，返回 `FEATURE_NOT_SUPPORTED` 和退出码 11。WebUI 文件页当前没有版本、页面和区块深链接，`open` 的对应参数也返回 11。
-
-## 文件与版本
-
-- `upload ./reports --recursive --folder /Reports --create-folders --yes` 保留子目录结构。省略 `--create-folders` 时，各远端目标目录须存在。
-- `--ttl-days` 支持小数，只接受换算后至少 10800 个整秒的值。
-- `revision upload <file-id> ./updated.pdf` 提交新版本。上传失败可用 `upload --resume <operation-id>` 恢复，包括新版本上传。
-- `revision get/restore/delete <revision-id> --file <file-id>` 需要文件上下文。恢复会创建新的当前版本。删除当前版本时按后端约定提供 `--replacement <revision-id>`。
-- `file convert <file-id> --to pdf --folder /Exports --yes` 等待转换产物，再创建独立文件。超时可用错误详情中的 ID 查询或恢复。恢复时使用原工作空间和 API 地址。
-- `file conversion get <operation-id> --file <file-id> --revision <revision-id>` 查看任务状态。
-- 文件夹参数以 `/` 开头时按路径解析，否则作为 ID。`/` 表示根目录。
-- 分页命令使用 `--limit` 和 `--offset`。默认每页 50 条，范围 1–100。分页字段由 SDK 接口决定。
-
-## 分享、专辑与打开
+`ws new/rm/stats`、空间描述编辑、问答会话、整文件 extract/resize/crop/trim/transcribe/thumbnail 提供严格占位。公开角色值为 manager、teammate；成员管理目前使用用户 ID，不支持邮箱解析。
 
 ```sh
-deckflow share create --title Reports --files FILE1,FILE2 --yes
-deckflow share revoke SHARE_ID --dry-run --json
-deckflow album create --name Weekly --folder /Reports --yes
-deckflow open SHARE_ID --type share --url
+deckflow ls / --ws WORKSPACE_ID --json
+deckflow mkdir /Reports --parents
+deckflow put ./report.pdf /Reports/report.pdf
+deckflow get /Reports/report.pdf ./downloaded.pdf
+deckflow view /Reports/report.pdf --json
+deckflow ops convert /Reports/report.docx --to pdf --output /Reports/export.pdf --yes
 ```
 
-`share create` 逐条添加文件，部分成功时错误详情包含分享 ID 和各条结果。`share update --input` 接受页面属性或策略对象，复杂 Gate 管理可以使用 WebUI。`share revoke` 禁用整个页面。
+列表默认 50 条，`--limit` 范围 1–100，使用 `--cursor` 继续。游标绑定范围与过滤条件；offset 适配不提供快照一致性，大型目录遍历会读取全部可访问元数据。
 
-`album create --input` 接受专辑 config 对象，可与 `--name` 和 `--folder` 合用。默认关闭公开访问、预览、下载、支付及解锁方式。`album update --input` 需要完整 config，而不是局部补丁。
+`--if-version` 使用 info 返回的版本；过期版本不会自动刷新重试。`--dry-run` 不提交处理任务或写入资源。永久删除、版本恢复需要 `--yes` 或交互确认。`--timeout` 为正整数秒，默认 30；`--wait-timeout` 使用时长（例如 10m），默认 10m。
 
-`open` 可用 `--type file|share|album` 消歧。非交互和 JSON 模式仅输出 URL。浏览器沿用 WebUI 登录态。
+预览和产物通过返回的 SDK method/params 或 artifact ID 获取，访问仍由服务端授权；不创建公开分享。处理默认只产生后台 artifact，不自动创建受管文件。render 多产物持久化要求已有输出目录，已有路径始终冲突。

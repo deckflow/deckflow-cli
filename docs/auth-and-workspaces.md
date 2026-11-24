@@ -1,24 +1,19 @@
 # 认证与工作空间
 
-`DECKFLOW_API_URL` 和 `DECKFLOW_WEB_URL` 分别覆盖用户配置中的 `apiUrl` 和 `webUrl`。API 地址应包含部署前缀，例如 `https://deckbase.example.com/api`。
+沿用 `~/.deckflow/credentials`，权限 0600；凭据绑定 API 地址，保留现有用户默认空间。API Key 不会出现在正常诊断中。
 
-`~/.deckflow/auth-uuid` 在首次执行普通命令时写入随机 UUID。文件已存在时会保留原值。
+```sh
+deckflow config set apiUrl https://deckbase.example.com/api
+deckflow config set webUrl https://deckbase.example.com
+deckflow auth login
+deckflow ws ls
+deckflow ws use WORKSPACE_ID
+```
 
-`~/.deckflow/credentials` 是 JSON 文件，保存用户配置和当前登录凭据。CLI 配置项 `apiUrl`、`webUrl` 和 `space` 分别对应文件中的 `apiRoot`、`webRoot` 和 `spaceId`。Token 以明文保存，文件按 `0600` 权限写入。
+`--ws` 是可选参数。先运行 `deckflow ws use WORKSPACE_ID` 保存默认值，后续可直接运行 `deckflow ls /`、`deckflow put ./file.txt /file.txt` 等命令。只有需要临时切换空间时才传 `--ws`；显式参数不会修改已保存的默认值。没有参数、环境值或默认配置时才返回 `WORKSPACE_REQUIRED`。
 
-交互运行 `deckflow auth login` 可隐藏输入。使用 `--token-stdin` 可从标准输入读入 Token。CLI 用 `user.self` 验证后保存 Token 和对应的 API 地址，切换到其他 API 地址时不会使用该 Token。日常命令优先使用 `DECKFLOW_TOKEN`。API Key 的 scope 和工作空间权限由服务端校验。
+优先级：`--ws` → `DECKFLOW_WORKSPACE` → 用户默认空间。旧 `--space`、`DECKFLOW_SPACE`、`.deckflow.json` 和 `space use --local` 已移除。显示名称不作为 slug；当前接口以稳定空间 ID 使用。
 
-`deckflow auth logout` 清除当前 API 地址的本地 Token。要撤销 API Key，请在 WebUI 操作。若 shell 仍设置了 `DECKFLOW_TOKEN`，后续命令仍使用它。
+`DECKFLOW_API_URL/DECKFLOW_WEB_URL` 覆盖配置；`DECKFLOW_TOKEN` 优先于本地凭据。支持 `auth login --token-stdin`。退出登录只清除本地凭据，不撤销远端 API Key，也不清除环境变量。
 
-升级后可用 `deckflow config set` 重新保存旧配置，再运行 `deckflow auth login` 写入新凭据文件。
-
-工作空间优先级依次为：
-
-1. `--space <id>`
-2. `DECKFLOW_SPACE`
-3. 从当前目录向上找到的最近 `.deckflow.json` 中的 `space` 配置
-4. 用户配置中的 `space`
-
-`deckflow space use <id>` 验证空间访问后保存用户默认配置。加 `--local` 将绑定写到当前项目。操作恢复状态位于 `~/.config/deckflow/operations/`，设置 `XDG_CONFIG_HOME` 时使用 `$XDG_CONFIG_HOME/deckflow/operations/`。
-
-没有有效工作空间时，空间内命令会报告缺少绑定。可运行 `deckflow status --json` 查看当前工作空间和来源。
+当前只有一个 CLI 用户配置。`config set space ID` 仍可保存默认空间；推荐使用验证访问的 `ws use ID`。状态文件沿用 XDG_CONFIG_HOME/deckflow/operations，或 ~/.config/deckflow/operations。

@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: deckflow/deckbase
-          ref: 7fb954c0ee9d1901822a1ecdaf43cbd3b94e05e1
+          ref: d44e817c8953ad8e62035a2fee5fbd1dbdd2f7e2
           path: deckbase
           token: ${{ secrets.DECKBASE_CHECKOUT_TOKEN }}
           persist-credentials: false

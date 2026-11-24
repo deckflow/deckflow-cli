@@ -80,6 +80,7 @@ type UploadState = {
   ttlSeconds?: number;
   expectedCurrentRevisionId: string | null;
   maxParts: number;
+  name?: string;
   sessionId?: string;
 };
 type ConvertState = {
@@ -245,7 +246,7 @@ async function transfer(
     if (current.bytes !== bytes || current.sha256 !== sha256)
       throw new CliError("SOURCE_CHANGED", "文件指纹与原操作不一致", 6);
   }
-  const name = basename(path);
+  const name = state.name ?? basename(path);
   let session = state.sessionId
     ? await api("uploadSession.detail", { spaceId, id: state.sessionId })
     : await api("uploadSession.add", {
@@ -375,7 +376,7 @@ async function transfer(
   };
 }
 
-async function finishFile(
+export async function finishFile(
   ctx: Context,
   api: ApiCall,
   spaceId: string,
@@ -397,6 +398,8 @@ async function finishFile(
 }
 export type UploadOptions = {
   folder?: string;
+  name?: string;
+  idempotencyKey?: string;
   recursive?: boolean;
   createFolders?: boolean;
   ttlDays?: string;
@@ -433,7 +436,7 @@ export async function upload(
       ctx,
       opts.resume,
       () => transfer(ctx, api, opts.resume!, state, true),
-      "deckflow upload",
+      "deckflow put LOCAL DEST",
       () => ({ spaceId, uploadSessionId: state.sessionId }),
     );
   }
@@ -508,7 +511,15 @@ export async function upload(
   if (planFolders)
     folders.set("", await folderPath(api, spaceId, opts.folder!, true));
   for (const path of paths) {
-    const id = randomUUID();
+    const digest = opts.idempotencyKey
+      ? createHash("sha256")
+          .update(spaceId + ":" + opts.idempotencyKey)
+          .digest("hex")
+          .slice(0, 32)
+      : undefined;
+    const id = digest
+      ? `${digest.slice(0, 8)}-${digest.slice(8, 12)}-${digest.slice(12, 16)}-${digest.slice(16, 20)}-${digest.slice(20)}`
+      : randomUUID();
     try {
       const sub = directory
         ? relative(root, dirname(path)).split(sep).join("/")
@@ -532,6 +543,7 @@ export async function upload(
         endpoint: await ctx.apiUrl(),
         spaceId,
         path,
+        name: opts.name,
         ...content,
         folderId: folders.get(sub),
         fileId,
@@ -544,7 +556,7 @@ export async function upload(
         ctx,
         id,
         () => transfer(ctx, api, id, state),
-        "deckflow upload",
+        "deckflow put LOCAL DEST",
         () => ({ spaceId, uploadSessionId: state.sessionId }),
       );
       if (!directory) return result;

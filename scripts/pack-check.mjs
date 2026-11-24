@@ -45,7 +45,7 @@ async function run(args, env = {}) {
 }
 const server = createServer((req, res) => {
   if (
-    req.url !== "/api/spaces/space/files/example" ||
+    req.url !== "/api/spaces/space" ||
     req.headers.authorization !== "Bearer pack-check"
   ) {
     res.writeHead(400).end();
@@ -86,14 +86,14 @@ try {
   assert.match(await run(["--help"]), /Usage: deckflow/);
   assert.match(await run(["--version"]), /^\d+\.\d+\.\d+/);
   await new Promise((ok) => server.listen(0, "127.0.0.1", ok));
-  const result = await run(
-    ["file", "get", "example", "--json", "--space", "space"],
-    {
-      DECKFLOW_TOKEN: "pack-check",
-      DECKFLOW_API_URL: `http://127.0.0.1:${server.address().port}/api`,
-    },
-  );
-  assert.deepEqual(JSON.parse(result), { id: "example", name: "packed.pdf" });
+  const result = await run(["ws", "info", "space", "--json"], {
+    DECKFLOW_TOKEN: "pack-check",
+    DECKFLOW_API_URL: `http://127.0.0.1:${server.address().port}/api`,
+  });
+  assert.deepEqual(JSON.parse(result).data, {
+    id: "example",
+    name: "packed.pdf",
+  });
   console.log("Installed bin, help, version and SDK request passed.");
 } finally {
   server.close();
