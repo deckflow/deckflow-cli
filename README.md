@@ -1,6 +1,6 @@
 # DeckFlow CLI
 
-`deckflow` 管理 DeckBase 的工作空间、文件、版本、文件夹、分享页和专辑。支持开发者终端、Agent 和 CI。
+`deckflow` 是面向开发者、Agent 和 CI 的 DeckBase 文件命令行客户端，提供文件与目录管理、内容检索、已有文本与视觉预览读取、文件处理任务和版本管理。当前 npm 包版本为 `0.2.0`，命令设计遵循 v0.3 规范。
 
 ## 安装
 
@@ -16,7 +16,7 @@ npm install -g @deckflow/deckflow-cli
 deckflow --version
 ```
 
-也可以用 `npm install -g ./deckflow-deckflow-cli-0.1.0.tgz` 安装本地构建包。安装包自带 SDK 运行时代码。
+也可以用 `npm install -g ./deckflow-deckflow-cli-0.2.0.tgz` 安装本地构建包。安装包自带 SDK 运行时代码。
 
 ## 快速开始
 
@@ -25,13 +25,32 @@ deckflow config set apiUrl https://deckbase.example.com/api
 deckflow config set webUrl https://deckbase.example.com
 deckflow auth login
 deckflow ws ls
-deckflow ws use <space-id>
+deckflow ws use WORKSPACE_ID
 deckflow mkdir /Reports
 deckflow put ./report.pdf /Reports/report.pdf
 deckflow ls /Reports --json
-deckflow get id:<file-id> ./downloaded-report.pdf
-deckflow view id:<file-id> --url
+deckflow get id:FILE_ID ./downloaded-report.pdf
+deckflow view id:FILE_ID --url
 ```
+
+将 `WORKSPACE_ID`、`FILE_ID` 替换为实际 ID。`ws use` 会保存默认工作空间，后续命令可省略 `--ws`。需要临时切换时使用：
+
+```sh
+deckflow ls / --ws OTHER_WORKSPACE_ID --json
+```
+
+工作空间优先级为 `--ws` → `DECKFLOW_WORKSPACE` → 已保存的用户默认值。临时覆盖不修改默认配置；三者均未设置时返回 `WORKSPACE_REQUIRED`。
+
+主要命令入口：
+
+- 对象管理：`ls/info/mkdir/new/put/get/cp/mv/rm`；`cat` 读取已有 UTF-8 文本，`view` 读取当前版本已有预览。
+- 检索：`find` 查元数据，`grep` 做正则内容匹配，`seek` 做语义检索，`ask` 返回带依据的回答。`search` 的 lexical/hybrid 模式尚未接通。
+- 工作空间：`ws`；文件处理：`ops`；任务查询：`jobs`；版本历史：`version`。
+- 结构化文件：`pptx/docx` 提供能力查询，深度结构读取和编辑尚未实现。
+
+后端未提供的功能会明确返回 `NOT_IMPLEMENTED` 或 `UNSUPPORTED_OPERATION`。默认软删除尚未支持；永久删除须显式使用 `rm --permanent` 并确认。`ops` 默认返回处理产物，指定 `--output` 才创建受管文件。完整支持范围见命令参考。
+
+使用 `--json` 时，成功和失败均在 stdout 输出单个 JSON 对象，诊断写入 stderr。Agent 和 CI 可使用 `--no-input --json`，并通过 `ok`、`error.code` 和退出码判断结果。
 
 从 DeckBase WebUI 的 API Key 页面获取密钥。交互登录会隐藏输入，并将 Token 和对应 API 地址存入 `~/.deckflow/credentials`。CI 通过密钥管理器设置 `DECKFLOW_TOKEN`，可以直接运行命令。
 
@@ -54,7 +73,7 @@ node dist/cli.js --help
 pnpm pack
 ```
 
-升级 SDK 时，同步更新 CI 固定的 commit，重新构建 SDK 并安装 CLI 开发依赖后运行检查。CLI 从 SDK 类型和对应源码生成方法清单，用于验证 `api` 方法及其 HTTP 动词。
+升级 SDK 时，同步更新 CI 固定的 commit，重新构建 SDK 并安装 CLI 开发依赖后运行检查。CLI 从实际安装 SDK 的类型声明与运行时代码生成方法清单，用于校验适配器使用的接口及其 HTTP 动词。已有 `dist-sdk` 时可直接安装 CLI 依赖并运行检查；若重新生成 SDK 遇到上游 `embed.query` 类型错误，参见迁移说明中的已知限制。
 
 ## 本地发布
 
