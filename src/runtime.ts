@@ -1053,16 +1053,48 @@ export function commands(root: Command, register: Register) {
             const hit = (answered.hits ?? []).find(
               (h: Record<string, unknown>) => h.hitId === citation,
             );
-            if (!hit) fail("BACKEND_UNAVAILABLE", "服务端引用缺少证据", 9);
-            const object = await file(ctx, "id:" + hit.fileId);
-            citations.push({
-              file_id: object.id,
-              path: object.path,
-              location: hit.location,
-              hit_id: citation,
-            });
+            if (!hit) {
+              citations.push({
+                hit_id: citation,
+                path: null,
+                path_status: "unavailable",
+                lookup_error: { code: "MISSING_EVIDENCE" },
+              });
+              continue;
+            }
+            try {
+              const object = await file(ctx, "id:" + hit.fileId);
+              citations.push({
+                file_id: object.id,
+                path: object.path,
+                location: hit.location,
+                hit_id: citation,
+              });
+            } catch (error) {
+              citations.push({
+                file_id: hit.fileId,
+                path: null,
+                path_status: "unavailable",
+                location: hit.location,
+                hit_id: citation,
+                lookup_error: {
+                  code:
+                    error instanceof CliError
+                      ? error.code
+                      : "CITATION_LOOKUP_FAILED",
+                  status: (error as { status?: number }).status,
+                },
+              });
+            }
           }
-          return { ...answered, citations };
+          return {
+            ...answered,
+            raw_citations: answered.citations,
+            citations,
+            citation_status: citations.some((c) => "lookup_error" in c)
+              ? "partial"
+              : "complete",
+          };
         }
         const raw =
           name === "grep"

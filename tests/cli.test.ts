@@ -1869,3 +1869,25 @@ it("issue 63: exposes the exact answer idempotency key for safe replay", async (
   ).toBe("done");
   expect(keys[0]).toBe(keys[1]);
 });
+
+it("issue 45: retains paid answers and raw evidence when citation lookup fails", async () => {
+  handler = (_, res, path) =>
+    path.endsWith("/answer")
+      ? json(res, {
+          answer: "paid answer",
+          cost: 42,
+          citations: ["c1"],
+          hits: [{ hitId: "c1", fileId: "f1", location: { page: 1 } }],
+        })
+      : json(res, {}, 404);
+  const data = result(await cli(["ask", "query", "--json"]));
+  expect(data.answer).toBe("paid answer");
+  expect(data.cost).toBe(42);
+  expect(data.raw_citations).toEqual(["c1"]);
+  expect(data.citation_status).toBe("partial");
+  expect(data.citations[0]).toMatchObject({
+    file_id: "f1",
+    path: null,
+    path_status: "unavailable",
+  });
+});
