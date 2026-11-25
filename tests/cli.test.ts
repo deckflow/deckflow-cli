@@ -2123,3 +2123,37 @@ it("issue 18: inaccessible content does not erase readable metadata or other mat
   expect(found.partial).toBe(true);
   expect(found.unavailable_items[0].id).toBe("f1");
 });
+
+it("issue 48: partial recursive copies retain the failing child HTTP reason", async () => {
+  handler = (req, res, path) => {
+    if (req.method === "POST")
+      return path.endsWith("/folders")
+        ? json(res, { id: "dest" })
+        : json(
+            res,
+            { code: "notAllowed", data: ["No file creation permission"] },
+            403,
+          );
+    if (path.includes("/folders"))
+      return json(res, {
+        rows: path.includes("parentId=")
+          ? []
+          : [{ id: "src", name: "Source", rowVersion: 1 }],
+        count: path.includes("parentId=") ? 0 : 1,
+      });
+    return json(res, {
+      rows: path.includes("folderId=src") ? [sampleFile] : [],
+      count: path.includes("folderId=src") ? 1 : 0,
+    });
+  };
+  const error = result(
+    await cli(["cp", "/Source", "/Copy", "--recursive", "--json"]),
+    5,
+  );
+  expect(error.code).toBe("PARTIAL_FAILURE");
+  expect(error.details.results[1].error).toMatchObject({
+    code: "notAllowed",
+    status: 403,
+  });
+  expect(error.details.cause).not.toBe("BACKEND_UNAVAILABLE");
+});

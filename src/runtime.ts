@@ -796,11 +796,31 @@ export function commands(root: Command, register: Register) {
             result: created,
           });
         } catch (error) {
-          results.push({ ok: false, path: entry.path });
+          const failure = error as {
+            code?: string;
+            status?: number;
+            data?: unknown;
+            message?: string;
+          };
+          const cause = {
+            code:
+              failure.code ??
+              (failure.status
+                ? `HTTP_${failure.status}`
+                : "BACKEND_UNAVAILABLE"),
+            status: failure.status,
+            server_reason: failure.data ?? failure.message,
+          };
+          results.push({
+            ok: false,
+            path: d.path + entry.path.slice(row.path.length),
+            error: cause,
+          });
           throw new CliError("PARTIAL_FAILURE", "目录复制部分成功", 9, {
             results,
-            cause:
-              error instanceof CliError ? error.code : "BACKEND_UNAVAILABLE",
+            cause: cause.code,
+            cause_status: cause.status,
+            server_reason: cause.server_reason,
           });
         }
       return { items: results, next_cursor: null };
