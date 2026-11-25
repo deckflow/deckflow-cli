@@ -2299,3 +2299,12 @@ it("issue 113: smoke CLI state stays inside the disposable smoke home", async ()
   }
   await expect(stat(entries[0].home)).rejects.toMatchObject({ code: "ENOENT" });
 });
+
+it("issue 66: smoke diagnostics retain both primary and cleanup failures", async () => {
+  const run = await smokeFixture(
+    `const a=process.argv[2];if(a==="put"||a==="rm"){console.log(JSON.stringify({ok:false,error:{code:a==="put"?"UPLOAD_503":"CLEANUP_403",message:"synthetic failure"}}));process.exit(5);}console.log(JSON.stringify({ok:true,data:{}}));`,
+  );
+  expect(run.code).not.toBe(0);
+  expect(run.stderr).toContain("UPLOAD_503");
+  expect(run.stderr).toContain("CLEANUP_403");
+});

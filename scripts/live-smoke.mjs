@@ -54,6 +54,9 @@ try {
   run(["mv", folder + "/copy.txt", folder + "/renamed.txt"]);
   assert.equal(run(["ls", folder]).items.length, 2);
   console.log("上传下载、覆盖版本、恢复、复制移动验证通过");
+} catch (error) {
+  console.error("冒烟主流程失败：", error.stdout?.toString() || error.message);
+  throw error;
 } finally {
   try {
     if (created) {
@@ -79,6 +82,9 @@ try {
           `清理仍在运行：${folder}；使用 deckflow jobs status ${deleted.job_id} --ws ${space} 查询`,
         );
     }
+  } catch (error) {
+    console.error("清理失败：", error.stdout?.toString() || error.message);
+    throw error;
   } finally {
     await rm(temp, { recursive: true, force: true });
   }
