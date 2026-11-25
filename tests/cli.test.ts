@@ -2157,3 +2157,21 @@ it("issue 48: partial recursive copies retain the failing child HTTP reason", as
   });
   expect(error.details.cause).not.toBe("BACKEND_UNAVAILABLE");
 });
+
+it("issue 53: a closed stdout reader exits cleanly without an EPIPE stack", async () => {
+  const run = await new Promise<{ code: number | null; stderr: string }>(
+    (done, fail) => {
+      const child = spawn(node, [binary, "ops", "capabilities", "--json"], {
+        env: { ...process.env, HOME: temp },
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      let stderr = "";
+      child.stderr.on("data", (d) => (stderr += d));
+      child.stdout.destroy();
+      child.on("error", fail);
+      child.on("close", (code) => done({ code, stderr }));
+    },
+  );
+  expect(run.code).toBe(0);
+  expect(run.stderr).toBe("");
+});

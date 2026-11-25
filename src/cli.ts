@@ -6,6 +6,13 @@ import { CliError, Context, type Globals } from "./core.js";
 
 declare const __VERSION__: string;
 
+process.stdout.on("error", (error: NodeJS.ErrnoException) => {
+  if (error.code === "EPIPE") process.exit(0);
+  process.stderr.write(`OUTPUT_IO_ERROR: ${error.code ?? "UNKNOWN"}\n`, () =>
+    process.exit(1),
+  );
+});
+
 const billingCodes = new Set([
   "EGRESS_CREDIT_EXHAUSTED",
   "BILLING_SUSPENDED",
