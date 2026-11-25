@@ -2356,3 +2356,51 @@ it("issue 62: expired upload sessions require restarting instead of resuming", a
   expect(error.details.restart_required).toBe(true);
   expect(error.details.resume).toBeUndefined();
 });
+
+it("issue 6: failed new retains the exact source bytes required by its resume command", async () => {
+  let fail = true;
+  handler = (req, res, path) => {
+    if (path === "/signed") return res.writeHead(fail ? 503 : 200).end();
+    if (path.includes("/upload-sessions"))
+      return json(res, {
+        id: "up",
+        status: path.endsWith("/complete") ? "verified" : "pending",
+        upload: { url: base + "/signed", method: "PUT", headers: {} },
+      });
+    if (req.method === "POST" && path.endsWith("/files"))
+      return json(res, sampleFile);
+    if (path === "/api/spaces/ws") return json(res, { regionId: "reg" });
+    if (path.startsWith("/api/regions"))
+      return json(res, { rows: [{ id: "reg", capabilities: {} }], count: 1 });
+    return json(res, { rows: [], count: 0 });
+  };
+  const error = result(
+    await cli(["new", "/fresh.txt", "--content", "fixture", "--json"]),
+    5,
+  );
+  expect(error.details.source_retained).toBe(true);
+  const state = JSON.parse(
+    await readFile(
+      join(temp, "deckflow", "operations", error.details.operationId + ".json"),
+      "utf8",
+    ),
+  );
+  try {
+    expect(await readFile(state.path, "utf8")).toBe("fixture");
+    fail = false;
+    expect(
+      result(
+        await cli([
+          "put",
+          "LOCAL",
+          "DEST",
+          "--resume",
+          error.details.operationId,
+          "--json",
+        ]),
+      ).fileId,
+    ).toBe("f1");
+  } finally {
+    await rm(resolve(state.path, ".."), { recursive: true, force: true });
+  }
+});

@@ -614,6 +614,7 @@ export function commands(root: Command, register: Register) {
       if ((await maybe(ctx, path))?.kind === "directory")
         fail("TYPE_MISMATCH", "文件路径指向已有目录");
       const dir = await mkdtemp(join(tmpdir(), "deckflow-new-"));
+      let keepSource = false;
       try {
         const local = join(dir, "content");
         const chunks: Buffer[] = [];
@@ -626,8 +627,17 @@ export function commands(root: Command, register: Register) {
           throw unsupported("创建时显式指定 MIME 类型；当前由服务端探测");
         await writeFile(local, data, { mode: 0o600 });
         return await put(ctx, [local, path], o);
+      } catch (error) {
+        const operation = (
+          error as {
+            operation?: { resume?: string; source_retained?: boolean };
+          }
+        ).operation;
+        keepSource = Boolean(operation?.resume);
+        if (operation && keepSource) operation.source_retained = true;
+        throw error;
       } finally {
-        await rm(dir, { recursive: true, force: true });
+        if (!keepSource) await rm(dir, { recursive: true, force: true });
       }
     },
     (c) =>
