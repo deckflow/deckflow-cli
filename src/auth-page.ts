@@ -1,3 +1,4 @@
+import { t, getLanguage } from "./i18n.mjs";
 import { createHash } from "node:crypto";
 
 // Keep this page self-contained: the callback server closes after redemption.
@@ -70,13 +71,13 @@ export const callbackPageCsp =
   createHash("sha256").update(styles).digest("base64") +
   "'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
-export const callbackPage = `<!doctype html>
-<html lang="zh-CN">
+export const callbackPage = () => `<!doctype html>
+<html lang="${getLanguage() === "zh" ? "zh-CN" : "en"}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
-  <title>授权回调已收到 · DeckFlow CLI</title>
+  <title>${t("授权回调已收到")} · DeckFlow CLI</title>
   <style>${styles}</style>
 </head>
 <body>
@@ -85,32 +86,32 @@ export const callbackPage = `<!doctype html>
       <svg class="brand-icon" viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="m4 9 12-6 12 6-12 6L4 9Z" fill="currentColor"/><path d="m4 16 12 6 12-6M4 23l12 6 12-6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <span>DeckFlow</span><span class="brand-divider" aria-hidden="true"></span><span class="brand-cli">CLI</span>
     </div>
-    <div class="local"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>本地授权</div>
+    <div class="local"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>${t("本地授权")}</div>
   </header>
   <main>
     <div class="content">
-      <p class="eyebrow">BROWSER → TERMINAL</p>
+      <p class="eyebrow">${t("浏览器 → 终端")}</p>
       <section class="card" aria-labelledby="title">
         <div class="status-icon"><svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="m8 16 5.5 5.5L24 11" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-        <h1 id="title">授权回调已收到</h1>
-        <p class="description">浏览器已完成这一步。<br>回到终端，查看本次登录的最终结果。</p>
+        <h1 id="title">${t("授权回调已收到")}</h1>
+        <p class="description">${t("浏览器已完成这一步。")}<br>${t("回到终端，查看本次登录的最终结果。")}</p>
         <div class="terminal">
           <div class="terminal-bar"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span><span>DeckFlow CLI</span><span aria-hidden="true">⌘</span></div>
           <div class="terminal-content">
             <p class="terminal-label"><span class="prompt" aria-hidden="true">❯</span> deckflow auth login</p>
-            <div class="next-step"><p>请返回发起登录的终端</p><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5m6-6-6 6 6 6"/></svg></div>
-            <p class="terminal-note">CLI 将继续处理授权，并显示登录结果。</p>
+            <div class="next-step"><p>${t("请返回发起登录的终端")}</p><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5m6-6-6 6 6 6"/></svg></div>
+            <p class="terminal-note">${t("CLI 将继续处理授权，并显示登录结果。")}</p>
           </div>
         </div>
-        <ol class="steps" aria-label="登录流程">
-          <li><span class="step-check" aria-hidden="true">✓</span>发起登录</li>
-          <li><span class="step-check" aria-hidden="true">✓</span>收到回调</li>
-          <li><span class="step-number" aria-hidden="true">3</span>终端确认</li>
+        <ol class="steps" aria-label="${t("登录流程")}">
+          <li><span class="step-check" aria-hidden="true">✓</span>${t("发起登录")}</li>
+          <li><span class="step-check" aria-hidden="true">✓</span>${t("收到回调")}</li>
+          <li><span class="step-number" aria-hidden="true">3</span>${t("终端确认")}</li>
         </ol>
       </section>
-      <p class="close-note">此页面可以安全关闭，无需刷新或重复授权。</p>
+      <p class="close-note">${t("此页面可以安全关闭，无需刷新或重复授权。")}</p>
     </div>
   </main>
-  <footer class="footer">DECKFLOW · FROM IDEAS TO DECKS</footer>
+  <footer class="footer">${t("DECKFLOW · 从想法到演示")}</footer>
 </body>
 </html>`;

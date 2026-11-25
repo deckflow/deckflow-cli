@@ -1,4 +1,13 @@
-import { Command, CommanderError } from "commander";
+import helpOptions from "./help-options.mjs";
+import {
+  resolveLanguage,
+  setLanguage,
+  localize,
+  getLanguage,
+  t,
+  type MessageKey,
+} from "./i18n.mjs";
+import { Command, CommanderError, Help, Option } from "commander";
 import { inspect } from "node:util";
 import { commands } from "./runtime.js";
 import { randomUUID } from "node:crypto";
@@ -53,6 +62,36 @@ function redact(value: unknown, token = process.env.DECKFLOW_TOKEN): unknown {
     );
   return value;
 }
+function commanderMessage(message: string) {
+  const patterns: [RegExp, MessageKey][] = [
+    [/^error: missing required argument '([^']+)'$/, "缺少必需参数 {0}"],
+    [/^error: option '([^']+)' argument missing$/, "选项 {0} 缺少参数"],
+    [/^error: required option '([^']+)' not specified$/, "缺少必需选项 {0}"],
+    [/^error: unknown option '([^']+)'/, "未知选项 {0}"],
+    [/^error: unknown command '([^']+)'/, "未知命令 {0}"],
+  ];
+  for (const [pattern, key] of patterns) {
+    const match = pattern.exec(message);
+    if (match) {
+      const suggestion = /\(Did you mean ([^)]+)\?\)/.exec(message);
+      return (
+        t(key, [match[1]]) +
+        (suggestion ? "\n" + t("您是否想使用 {0}？", [suggestion[1]]) : "")
+      );
+    }
+  }
+  const excess =
+    /^error: too many arguments(?: for '([^']+)')?\. Expected (\d+) arguments? but got (\d+)\.$/.exec(
+      message,
+    );
+  if (excess)
+    return t("{0} 参数过多：需要 {1} 个，收到 {2} 个", [
+      excess[1] ?? "deckflow",
+      excess[2],
+      excess[3],
+    ]);
+  return message;
+}
 function failure(error: unknown) {
   const e = error as
     | (Error & {
@@ -80,7 +119,11 @@ function failure(error: unknown) {
   if (e instanceof CommanderError)
     return {
       exit: 2,
-      body: { code: "INVALID_ARGUMENT", message: e.message, details: {} },
+      body: {
+        code: "INVALID_ARGUMENT",
+        message: commanderMessage(e.message),
+        details: {},
+      },
     };
   const status = e?.status;
   if (status) {
@@ -107,17 +150,17 @@ function failure(error: unknown) {
           )[status] ?? 9);
     const message =
       code === "INDEX_PROFILE_MISMATCH"
-        ? "搜索索引模型配置不匹配"
+        ? t("搜索索引模型配置不匹配")
         : (
             {
-              2: "DeckBase 拒绝了请求参数",
-              3: "DeckBase 认证失败",
-              4: "DeckBase 拒绝访问",
-              5: "资源不存在或不可访问",
-              6: "资源状态冲突，请重新读取",
-              7: "DeckBase 额度或计费限制",
-              8: "DeckBase 请求过于频繁",
-              9: "DeckBase 请求失败",
+              2: t("DeckBase 拒绝了请求参数"),
+              3: t("DeckBase 认证失败"),
+              4: t("DeckBase 拒绝访问"),
+              5: t("资源不存在或不可访问"),
+              6: t("资源状态冲突，请重新读取"),
+              7: t("DeckBase 额度或计费限制"),
+              8: t("DeckBase 请求过于频繁"),
+              9: t("DeckBase 请求失败"),
             } as Record<number, string>
           )[exit];
     return {
@@ -143,7 +186,7 @@ function failure(error: unknown) {
       exit: 8,
       body: {
         code: "NETWORK_ERROR",
-        message: "网络请求失败或等待超时",
+        message: t("网络请求失败或等待超时"),
         details: details ?? {},
       },
     };
@@ -152,7 +195,7 @@ function failure(error: unknown) {
       exit: 6,
       body: {
         code: "OUTPUT_EXISTS",
-        message: "目标已存在",
+        message: t("目标已存在"),
         details: details ?? {},
       },
     };
@@ -166,7 +209,7 @@ function failure(error: unknown) {
       exit: 2,
       body: {
         code: e.code,
-        message: "无法访问本地文件或目录",
+        message: t("无法访问本地文件或目录"),
         details: details ?? {},
       },
     };
@@ -174,7 +217,7 @@ function failure(error: unknown) {
     exit: 1,
     body: {
       code: "INTERNAL_ERROR",
-      message: "CLI 操作失败",
+      message: t("CLI 操作失败"),
       details: details ?? {},
     },
   };
@@ -235,17 +278,18 @@ let workspaceId: string | undefined;
 const requestId = randomUUID();
 const root = new Command()
   .name("deckflow")
-  .description("DeckBase 云端文件命令行客户端")
+  .description(t("DeckBase 云端文件命令行客户端"))
   .version(__VERSION__)
-  .option("--ws <id>", "可选：覆盖默认工作空间；使用 ws ls 获取 ID")
-  .option("--quiet", "减少状态输出")
-  .option("--json", "输出 JSON")
-  .option("--no-input", "禁用隐式交互")
-  .option("--yes", "确认此操作")
-  .option("--dry-run", "只预检")
-  .option("--timeout <seconds>", "请求超时秒数", "30")
-  .option("--wait-timeout <duration>", "异步任务等待时限", "10m")
-  .option("--verbose", "向 stderr 输出诊断")
+  .option("--lang <en|zh|auto>", t("选择语言：en、zh 或 auto"))
+  .option("--ws <id>", t("可选：覆盖默认工作空间；使用 ws ls 获取 ID"))
+  .option("--quiet", t("减少状态输出"))
+  .option("--json", t("输出 JSON"))
+  .option("--no-input", t("禁用隐式交互"))
+  .option("--yes", t("确认此操作"))
+  .option("--dry-run", t("只预检"))
+  .option("--timeout <seconds>", t("请求超时秒数"), "30")
+  .option("--wait-timeout <duration>", t("异步任务等待时限"), "10m")
+  .option("--verbose", t("向 stderr 输出诊断"))
   .configureOutput({ writeErr: () => {} })
   .exitOverride();
 
@@ -255,10 +299,11 @@ commands(root, (cmd, run) => {
     const options = command.opts() as Record<string, string | undefined>;
     const global = root.opts<Globals>();
     if (!/^\d+$/.test(global.timeout ?? "30") || Number(global.timeout) <= 0)
-      throw new CliError("INVALID_ARGUMENT", "--timeout 必须为正整数秒", 2);
+      throw new CliError("INVALID_ARGUMENT", t("--timeout 必须为正整数秒"), 2);
     const ctx = new Context(global);
     workspaceId = (await ctx.spaceInfo()).id;
-    if (cmd.name() !== "capabilities") await ctx.initialize();
+    if (cmd.name() !== "capabilities" && cmd.parent?.name() !== "config")
+      await ctx.initialize();
     const result = await run(ctx, values.slice(0, -2) as string[], options);
     workspaceId = (await ctx.spaceInfo()).id;
     if (
@@ -285,7 +330,7 @@ commands(root, (cmd, run) => {
             : first.exitCode;
         throw new CliError(
           "BATCH_FAILED",
-          exit === 10 ? "批量操作部分成功" : "批量操作失败",
+          exit === 10 ? t("批量操作部分成功") : t("批量操作失败"),
           exit,
           { ...result, results },
         );
@@ -301,12 +346,108 @@ for (const group of root.commands.filter(
   group.action(() => {
     throw new CliError(
       "INVALID_ARGUMENT",
-      `${group.name()} 需要子命令；使用 ${group.name()} --help 查看可用命令`,
+      t("{0} 需要子命令；使用 {1} --help 查看可用命令", [
+        group.name(),
+        group.name(),
+      ]),
       2,
     );
   });
 
 try {
+  const argv = process.argv.slice(2);
+  const optionDefinitions = new Map<
+    string,
+    { required: boolean; optional: boolean }
+  >();
+  function collect(command: Command) {
+    for (const option of command.options) {
+      if (option.long) optionDefinitions.set(option.long, option);
+      if (option.short) optionDefinitions.set(option.short, option);
+    }
+    for (const child of command.commands) collect(child);
+  }
+  collect(root);
+  const globals = [...root.options];
+  function inheritOptions(command: Command) {
+    command.enablePositionalOptions();
+    if (command !== root)
+      for (const option of globals) {
+        if (command.options.some((existing) => existing.long === option.long))
+          continue;
+        command.addOption(
+          new Option(option.flags, option.description).hideHelp(),
+        );
+        command.on(`option:${option.name()}`, () =>
+          root.setOptionValue(
+            option.attributeName(),
+            command.getOptionValue(option.attributeName()),
+          ),
+        );
+      }
+    for (const child of command.commands) inheritOptions(child);
+  }
+  inheritOptions(root);
+  let preference: string | undefined;
+  for (let i = 0; i < argv.length && argv[i] !== "--"; i++) {
+    const flag = argv[i].split("=")[0];
+    if (flag === "--lang") {
+      preference = argv[i].includes("=") ? argv[i].slice(7) : argv[++i];
+      if (!preference)
+        throw new CliError("INVALID_ARGUMENT", t("语言必须是 en、zh 或 auto"));
+    } else {
+      const option = optionDefinitions.get(flag);
+      if (option?.required && !argv[i].includes("=")) i++;
+    }
+  }
+  try {
+    setLanguage(resolveLanguage(preference));
+  } catch {
+    throw new CliError("INVALID_ARGUMENT", t("语言必须是 en、zh 或 auto"));
+  }
+  function translate(command: Command) {
+    command.configureOutput({ writeErr: () => {} }).exitOverride();
+    command.description(localize(command.description()));
+    command.helpOption("-h, --help", t("显示帮助"));
+    if (command.commands.length)
+      command.helpCommand("help [command]", t("显示命令帮助"));
+    for (const option of command.options)
+      option.description = option.description
+        ? localize(option.description)
+        : helpOptions[option.long ?? ""]
+          ? t(helpOptions[option.long!])
+          : "";
+    command.configureHelp({
+      styleTitle: (title: string) =>
+        getLanguage() === "zh"
+          ? ({
+              "Usage:": "用法：",
+              "Options:": "选项：",
+              "Commands:": "命令：",
+              "Arguments:": "参数：",
+              "Global Options:": "全局选项：",
+            }[title] ?? title)
+          : title,
+      optionDescription: (option) => {
+        const text = Help.prototype.optionDescription.call(new Help(), option);
+        return getLanguage() === "zh"
+          ? text.replace(
+              /\b(default|choices|preset|env):/g,
+              (label) =>
+                ({
+                  "default:": "默认值：",
+                  "choices:": "取值：",
+                  "preset:": "预设值：",
+                  "env:": "环境变量：",
+                })[label]!,
+            )
+          : text;
+      },
+      showGlobalOptions: command !== root,
+    });
+    for (const child of command.commands) translate(child);
+  }
+  translate(root);
   await root.parseAsync();
 } catch (e) {
   if (e instanceof CommanderError && e.exitCode === 0) process.exitCode = 0;

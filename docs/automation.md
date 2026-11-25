@@ -1,5 +1,9 @@
 # Agent 与 CI
 
+**中文** | [English](automation.en.md)
+
+可设置 `DECKFLOW_LANG=en` 或传入 `--lang en` 固定诊断语言。CLI 生成的 message 和重试说明随语言变化；JSON 字段、错误码、协议枚举和服务端原始原因保持固定。
+
 注入 `DECKFLOW_API_URL`、`DECKFLOW_TOKEN`、`DECKFLOW_WORKSPACE`，并使用 `--no-input --json`。并行 Agent 推荐显式使用 `--ws`。
 
 成功与失败均在 stdout 输出恰好一个 JSON 对象和末尾换行；诊断输出到 stderr。

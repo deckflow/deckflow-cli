@@ -9,7 +9,8 @@
   },
   "files": [
     "dist",
-    "docs"
+    "docs",
+    "README.en.md"
   ],
   "engines": {
     "node": ">=18.17.0"
@@ -28,7 +29,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "pack:check": "node scripts/pack-check.mjs",
-    "ci:check": "pnpm format:check && pnpm typecheck && pnpm test && pnpm pack:check"
+    "ci:check": "pnpm i18n:check && pnpm format:check && pnpm typecheck && pnpm test && pnpm pack:check",
+    "i18n:check": "node scripts/i18n-check.mjs"
   },
   "devDependencies": {
     "@deckflow/deckbase-sdk": "file:../deckbase/dist-sdk",

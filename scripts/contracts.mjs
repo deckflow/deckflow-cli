@@ -1,3 +1,4 @@
+import { t } from "../src/i18n.mjs";
 import { readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
@@ -14,7 +15,7 @@ const routes = Object.fromEntries(
     .map(([, method, verb]) => [method, verb]),
 );
 if (!routes["file.detail"] || !routes["search.query"])
-  throw Error("SDK 缺少 v0.3 必需接口");
+  throw Error(t("SDK 缺少 v0.3 必需接口"));
 writeFileSync(
   new URL("../src/sdk-methods.generated.ts", import.meta.url),
   `import type { Method } from "@deckflow/deckbase-sdk";\nexport const methods = ${JSON.stringify(routes, null, 2)} satisfies Record<Method,string>;\n`,

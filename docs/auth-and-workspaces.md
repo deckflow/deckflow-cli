@@ -1,5 +1,9 @@
 # 认证与工作空间
 
+**中文** | [English](auth-and-workspaces.en.md)
+
+语言偏好同样保存在用户配置中，登录和退出不会清除。无需登录即可使用 `config set lang en|zh|auto`；`--lang` 和 `DECKFLOW_LANG` 可临时覆盖。本地授权回调页跟随 CLI，授权网站使用独立网页语言设置。
+
 沿用 `~/.deckflow/credentials`，权限 0600；凭据绑定 API 地址，保留现有用户默认空间。API Key 不会出现在正常诊断中。
 
 ```sh

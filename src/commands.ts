@@ -1,3 +1,4 @@
+import { t } from "./i18n.mjs";
 import { randomUUID } from "node:crypto";
 import { basename, dirname, join } from "node:path";
 import type { Method, Params } from "@deckflow/deckbase-sdk";
@@ -35,11 +36,13 @@ type Register = (
   run: (ctx: Context, args: string[], opts: Options) => Promise<unknown>,
 ) => void;
 const paginate = (c: Command) =>
-  c.option("--limit <n>", "每页条数，1–100").option("--offset <n>", "分页偏移");
+  c
+    .option("--limit <n>", t("每页条数，1–100"))
+    .option("--offset <n>", t("分页偏移"));
 const payload = (c: Command) =>
-  c.option("--input <json-file|->", "从文件或标准输入读取 JSON");
+  c.option("--input <json-file|->", t("从文件或标准输入读取 JSON"));
 function required(value: string | undefined, option: string): string {
-  if (!value?.trim()) throw usage(`缺少 ${option}`);
+  if (!value?.trim()) throw usage(t("缺少 {0}", [option]));
   return value;
 }
 function withOptions(
@@ -62,22 +65,24 @@ function configHelp(action: "get" | "set") {
   const fields = Object.entries(configFields);
   const lines = fields.map(([key, field]) => {
     const label = action === "set" ? `${key} <${field.format}>` : key;
-    return `  ${label.padEnd(16)} ${field.description}`;
+    return `  ${label.padEnd(16)} ${t(field.description)}`;
   });
   if (action === "set") {
     lines.push(
       "",
-      "URL 必须是完整的 HTTP(S) 地址，不可包含用户名、密码、查询参数或片段。",
-      "空间 ID 可从 deckflow ws ls 获取，保存时会验证当前凭据的访问权限。",
+      t(
+        "URL 必须是完整的 HTTP(S) 地址，不可包含用户名、密码、查询参数或片段。",
+      ),
+      t("空间 ID 可从 deckflow ws ls 获取，保存时会验证当前凭据的访问权限。"),
       "",
-      "示例：",
+      t("示例："),
       ...fields.map(
         ([key, field]) => `  deckflow config set ${key} ${field.example}`,
       ),
     );
   }
   return `
-支持的配置项（键名区分大小写）：
+${t("支持的配置项（键名区分大小写）：")}
 ${lines.join("\n")}`;
 }
 
@@ -88,11 +93,11 @@ async function openResource(
   forceShare = false,
 ) {
   if (o.page !== undefined || o.revision !== undefined || o.block !== undefined)
-    throw unsupported("文件版本或页面深链接");
+    throw unsupported(t("文件版本或页面深链接"));
   const type = forceShare ? "share" : o.type;
   const types = ["file", "share", "album"] as const;
   if (type && !types.includes(type as (typeof types)[number]))
-    throw usage("--type 必须是 file、share 或 album");
+    throw usage(t("--type 必须是 file、share 或 album"));
   const web = await ctx.webUrl();
   const spaceId = await ctx.space();
   const api = await ctx.client();
@@ -125,11 +130,11 @@ async function openResource(
   );
   const hits = paths.filter((p) => p !== null);
   if (!hits.length)
-    throw new CliError("NOT_FOUND", "当前工作空间找不到资源", 5);
+    throw new CliError("NOT_FOUND", t("当前工作空间找不到资源"), 5);
   if (hits.length > 1)
     throw new CliError(
       "AMBIGUOUS_RESOURCE",
-      "资源 ID 有歧义，请指定 --type",
+      t("资源 ID 有歧义，请指定 --type"),
       6,
     );
   const url = web + hits[0];
@@ -140,7 +145,7 @@ async function openResource(
     } catch {
       throw new CliError(
         "BROWSER_OPEN_FAILED",
-        "无法启动浏览器，请使用 --url",
+        t("无法启动浏览器，请使用 --url"),
         8,
         { url },
       );
@@ -162,28 +167,30 @@ export function commands(root: Command, register: Register) {
   };
   const group = (name: string, description: string) =>
     root.command(name).description(description);
-  const config = group("config", "管理本地配置");
-  add(config, "list", "列出用户配置", (ctx) => ctx.config());
+  const config = group("config", t("管理本地配置"));
+  add(config, "list", t("列出用户配置"), (ctx) => ctx.config());
   add(
     config,
     "get <key>",
-    "读取配置",
+    t("读取配置"),
     async (ctx, [key]) => ({
       key,
       value: (await ctx.config())[configKey(key)] ?? null,
     }),
-    (c) => c.addHelpText("after", configHelp("get")),
+    (c) => c.addHelpText("after", () => configHelp("get")),
   );
   add(
     config,
     "set <key> <value>",
-    "保存配置",
+    t("保存配置"),
     async (ctx, [key, raw]) => {
       const field = configKey(key);
       const value =
         configFields[field].format === "url"
           ? endpoint(raw, key)
           : required(raw, key);
+      if (field === "lang" && !["en", "zh", "auto"].includes(value))
+        throw usage(t("语言必须是 en、zh 或 auto"));
       if (field === "space")
         await (
           await ctx.client()
@@ -192,7 +199,7 @@ export function commands(root: Command, register: Register) {
       await ctx.setConfig(field, value);
       return { key, value };
     },
-    (c) => c.addHelpText("after", configHelp("set")),
+    (c) => c.addHelpText("after", () => configHelp("set")),
   );
 
   const identity = async (ctx: Context, token?: string, apiUrl?: string) => {
@@ -206,15 +213,15 @@ export function commands(root: Command, register: Register) {
       return null;
     }
   };
-  const auth = group("auth", "管理 DeckBase 身份");
+  const auth = group("auth", t("管理 DeckBase 身份"));
   add(
     auth,
     "login",
-    "通过浏览器授权登录，或导入 API Key / Token",
+    t("通过浏览器授权登录，或导入 API Key / Token"),
     async (ctx, _, o) => {
       const mode = authorizationMode(o.mode);
       if (o.tokenStdin && mode)
-        throw usage("--mode 不能与 --token-stdin 同时使用");
+        throw usage(t("--mode 不能与 --token-stdin 同时使用"));
       const apiUrl = await ctx.apiUrl();
       if (ctx.opts.dryRun) return { dryRun: true, apiUrl };
       if (!o.tokenStdin && (mode || !ctx.env.DECKFLOW_TOKEN))
@@ -230,7 +237,7 @@ export function commands(root: Command, register: Register) {
       if (!token || /\s/.test(token))
         throw new CliError(
           "AUTH_REQUIRED",
-          "请提供有效 Token，使用 --token-stdin 或 DECKFLOW_TOKEN",
+          t("请提供有效 Token，使用 --token-stdin 或 DECKFLOW_TOKEN"),
           3,
         );
       const user = await identity(ctx, token, apiUrl);
@@ -245,57 +252,57 @@ export function commands(root: Command, register: Register) {
       c
         .option(
           "--mode <mode>",
-          "浏览器授权模式：apikey（默认）或 token；不指定时可在网页切换",
+          t("浏览器授权模式：apikey（默认）或 token；不指定时可在网页切换"),
         )
-        .option("--no-browser", "只显示授权链接，不自动打开浏览器")
-        .option("--token-stdin", "从标准输入读入 API Key 或 Token"),
+        .option("--no-browser", t("只显示授权链接，不自动打开浏览器"))
+        .option("--token-stdin", t("从标准输入读入 API Key 或 Token")),
   );
-  add(auth, "status", "验证当前身份", async (ctx) => ({
+  add(auth, "status", t("验证当前身份"), async (ctx) => ({
     authenticated: true,
     user: await identity(ctx),
     source: ctx.env.DECKFLOW_TOKEN ? "environment" : "credential-store",
   }));
-  add(auth, "logout", "清除本地凭据", async (ctx) => {
+  add(auth, "logout", t("清除本地凭据"), async (ctx) => {
     if (ctx.opts.dryRun) return { dryRun: true, apiUrl: await ctx.apiUrl() };
     const removed = await ctx.clearToken(await ctx.apiUrl());
     if (ctx.env.DECKFLOW_TOKEN)
-      process.stderr.write("DECKFLOW_TOKEN 仍然生效。\n");
+      process.stderr.write(t("DECKFLOW_TOKEN 仍然生效。\n"));
     return {
       localCredentialRemoved: removed,
       environmentTokenActive: !!ctx.env.DECKFLOW_TOKEN,
     };
   });
-  add(root, "status", "显示身份、地址和工作空间", async (ctx) => ({
+  add(root, "status", t("显示身份、地址和工作空间"), async (ctx) => ({
     apiUrl: await ctx.apiUrl(),
     webUrl: ctx.env.DECKFLOW_WEB_URL || (await ctx.config()).webUrl || null,
     space: await ctx.spaceInfo(),
     user: await identity(ctx),
   }));
 
-  const space = group("space", "管理工作空间");
-  add(space, "list", "列出可访问的工作空间", async (ctx) =>
+  const space = group("space", t("管理工作空间"));
+  add(space, "list", t("列出可访问的工作空间"), async (ctx) =>
     (await ctx.client())("my.spaces", {}),
   );
-  add(space, "get [id]", "查看工作空间", async (ctx, [id]) =>
+  add(space, "get [id]", t("查看工作空间"), async (ctx, [id]) =>
     (await ctx.client())("space.detail", { id: id ?? (await ctx.space()) }),
   );
   add(
     space,
     "create <name>",
-    "创建工作空间",
+    t("创建工作空间"),
     async (ctx, [name], o) => {
       const regionId = required(o.region, "--region");
       return (
-        (await ctx.confirm("创建工作空间", { name, regionId }, true)) ??
+        (await ctx.confirm(t("创建工作空间"), { name, regionId }, true)) ??
         (await ctx.client())("my.addSpace", { name, regionId })
       );
     },
-    (c) => c.requiredOption("--region <id>", "区域 ID"),
+    (c) => c.requiredOption("--region <id>", t("区域 ID")),
   );
   add(
     space,
     "use <id>",
-    "保存默认工作空间",
+    t("保存默认工作空间"),
     async (ctx, [id], o) => {
       await (
         await ctx.client()
@@ -317,12 +324,12 @@ export function commands(root: Command, register: Register) {
         ...(ctx.opts.dryRun && { dryRun: true }),
       };
     },
-    (c) => c.option("--local", "写入当前项目配置"),
+    (c) => c.option("--local", t("写入当前项目配置")),
   );
   add(
     space,
     "members [id]",
-    "列出空间成员",
+    t("列出空间成员"),
     async (ctx, [id], o) =>
       (await ctx.client())("space.users", {
         spaceId: id ?? (await ctx.space()),
@@ -331,12 +338,12 @@ export function commands(root: Command, register: Register) {
     paginate,
   );
 
-  const file = group("file", "管理云端文件");
+  const file = group("file", t("管理云端文件"));
   for (const parent of [root, file]) {
     add(
       parent,
       "upload [path]",
-      "上传单文件或目录",
+      t("上传单文件或目录"),
       (ctx, [path], o) => upload(ctx, path, o as UploadOptions),
       (c) =>
         c
@@ -349,7 +356,7 @@ export function commands(root: Command, register: Register) {
     add(
       parent,
       "download <file-id>",
-      "下载原文件或指定版本",
+      t("下载原文件或指定版本"),
       (ctx, [id], o) =>
         download(ctx, id, { ...o, overwrite: Boolean(o.overwrite) }),
       (c) =>
@@ -362,7 +369,7 @@ export function commands(root: Command, register: Register) {
   add(
     file,
     "list",
-    "列出目录中的文件",
+    t("列出目录中的文件"),
     async (ctx, _, o) => {
       const spaceId = await ctx.space();
       const api = await ctx.client();
@@ -387,19 +394,19 @@ export function commands(root: Command, register: Register) {
         .option("--created-after <date>")
         .option("--created-before <date>"),
   );
-  add(file, "get <file-id>", "查看文件", async (ctx, [fileId]) =>
+  add(file, "get <file-id>", t("查看文件"), async (ctx, [fileId]) =>
     (await ctx.client())("file.detail", { spaceId: await ctx.space(), fileId }),
   );
   add(
     file,
     "update <file-id>",
-    "修改文件属性",
+    t("修改文件属性"),
     async (ctx, [fileId], o) => {
       const api = await ctx.client(),
         spaceId = await ctx.space();
       const { rowVersion } = await api("file.detail", { spaceId, fileId });
       if (o.name === undefined && o.description === undefined)
-        throw usage("请指定 --name 或 --description");
+        throw usage(t("请指定 --name 或 --description"));
       const params = {
         spaceId,
         fileId,
@@ -416,7 +423,7 @@ export function commands(root: Command, register: Register) {
   add(
     file,
     "move <file-id>",
-    "移动文件",
+    t("移动文件"),
     async (ctx, [fileId], o) => {
       const api = await ctx.client(),
         spaceId = await ctx.space();
@@ -441,7 +448,7 @@ export function commands(root: Command, register: Register) {
   add(
     file,
     "delete <file-id>",
-    "删除文件，返回删除任务",
+    t("删除文件，返回删除任务"),
     async (ctx, [fileId]) => {
       const api = await ctx.client(),
         spaceId = await ctx.space();
@@ -450,7 +457,7 @@ export function commands(root: Command, register: Register) {
         fileId,
       });
       return (
-        (await ctx.confirm("删除文件", {
+        (await ctx.confirm(t("删除文件"), {
           spaceId,
           fileId,
           name,
@@ -463,7 +470,7 @@ export function commands(root: Command, register: Register) {
   add(
     file,
     "convert [file-id]",
-    "转换为独立 PDF 文件",
+    t("转换为独立 PDF 文件"),
     (ctx, [id], o) => convert(ctx, id, o),
     (c) =>
       c
@@ -473,11 +480,11 @@ export function commands(root: Command, register: Register) {
         .option("--revision <id>")
         .option("--resume <operation-id>"),
   );
-  const conversions = file.command("conversion").description("查询转换任务");
+  const conversions = file.command("conversion").description(t("查询转换任务"));
   add(
     conversions,
     "list <file-id>",
-    "列出文件版本的转换任务",
+    t("列出文件版本的转换任务"),
     async (ctx, [fileId], o) =>
       (await ctx.client())("conversion.list", {
         spaceId: await ctx.space(),
@@ -489,7 +496,7 @@ export function commands(root: Command, register: Register) {
   add(
     conversions,
     "get <operation-id>",
-    "查询转换任务",
+    t("查询转换任务"),
     async (ctx, [operationId], o) =>
       (await ctx.client())("conversion.detail", {
         spaceId: await ctx.space(),
@@ -502,25 +509,29 @@ export function commands(root: Command, register: Register) {
   add(
     file.command("creation"),
     "get <operation-id>",
-    "查询文件创建任务",
+    t("查询文件创建任务"),
     async (ctx, [operationId]) =>
       (await ctx.client())("file.creationDetail", {
         spaceId: await ctx.space(),
         operationId,
       }),
   );
-  add(file.command("deletion"), "get <id>", "查询删除任务", async (ctx, [id]) =>
-    (await ctx.client())("deletionJob.detail", {
-      spaceId: await ctx.space(),
-      id,
-    }),
+  add(
+    file.command("deletion"),
+    "get <id>",
+    t("查询删除任务"),
+    async (ctx, [id]) =>
+      (await ctx.client())("deletionJob.detail", {
+        spaceId: await ctx.space(),
+        id,
+      }),
   );
 
-  const rev = group("revision", "管理文件版本");
+  const rev = group("revision", t("管理文件版本"));
   add(
     rev,
     "list <file-id>",
-    "列出版本",
+    t("列出版本"),
     async (ctx, [fileId], o) =>
       (await ctx.client())("revision.list", {
         spaceId: await ctx.space(),
@@ -532,7 +543,7 @@ export function commands(root: Command, register: Register) {
   add(
     rev,
     "get <revision-id>",
-    "查看版本",
+    t("查看版本"),
     async (ctx, [revisionId], o) =>
       (await ctx.client())("revision.detail", {
         spaceId: await ctx.space(),
@@ -541,7 +552,7 @@ export function commands(root: Command, register: Register) {
       }),
     (c) => c.requiredOption("--file <id>"),
   );
-  add(rev, "upload <file-id> <path>", "上传新版本", (ctx, [fileId, path]) =>
+  add(rev, "upload <file-id> <path>", t("上传新版本"), (ctx, [fileId, path]) =>
     upload(ctx, path, {}, fileId),
   );
   for (const action of ["restore", "delete"] as const) {
@@ -549,8 +560,8 @@ export function commands(root: Command, register: Register) {
       rev,
       `${action} <revision-id>`,
       action === "restore"
-        ? "用历史版本创建新的当前版本"
-        : "删除版本，返回删除任务",
+        ? t("用历史版本创建新的当前版本")
+        : t("删除版本，返回删除任务"),
       async (ctx, [revisionId], o) => {
         const api = await ctx.client(),
           spaceId = await ctx.space(),
@@ -566,7 +577,7 @@ export function commands(root: Command, register: Register) {
         };
         return (
           (await ctx.confirm(
-            action === "restore" ? "恢复为新版本" : "删除版本",
+            action === "restore" ? t("恢复为新版本") : t("删除版本"),
             { ...params, replacementRevisionId: o.replacement },
           )) ??
           (action === "restore"
@@ -592,11 +603,11 @@ export function commands(root: Command, register: Register) {
     );
   }
 
-  const folder = group("folder", "管理文件夹");
+  const folder = group("folder", t("管理文件夹"));
   add(
     folder,
     "list",
-    "列出子文件夹",
+    t("列出子文件夹"),
     async (ctx, _, o) => {
       const api = await ctx.client(),
         spaceId = await ctx.space();
@@ -607,29 +618,29 @@ export function commands(root: Command, register: Register) {
     },
     (c) => paginate(c).option("--parent <path-or-id>"),
   );
-  add(folder, "get <path-or-id>", "查看文件夹", async (ctx, [id]) => {
+  add(folder, "get <path-or-id>", t("查看文件夹"), async (ctx, [id]) => {
     const api = await ctx.client(),
       spaceId = await ctx.space();
     return api("folder.detail", {
       spaceId,
       folderId: required(
         (await folderPath(api, spaceId, id)) ?? undefined,
-        "非根目录",
+        t("非根目录"),
       ),
     });
   });
   add(
     folder,
     "create <name-or-path>",
-    "创建文件夹",
+    t("创建文件夹"),
     async (ctx, [value], o) => {
       const api = await ctx.client(),
         spaceId = await ctx.space();
       if (value.startsWith("/") && o.parent)
-        throw usage("绝对目录路径不能与 --parent 合用");
+        throw usage(t("绝对目录路径不能与 --parent 合用"));
       const name = value.startsWith("/") ? basename(value) : value;
       if (!name || [".", ".."].includes(name) || name.includes("/"))
-        throw usage("无效文件夹名称");
+        throw usage(t("无效文件夹名称"));
       const parent = value.startsWith("/") ? dirname(value) : o.parent;
       const parentId = parent ? await folderPath(api, spaceId, parent) : null;
       const params = { spaceId, parentId, name, description: o.description };
@@ -643,15 +654,17 @@ export function commands(root: Command, register: Register) {
     add(
       folder,
       `${action} <path-or-id>`,
-      { update: "修改文件夹", move: "移动文件夹", delete: "删除文件夹" }[
-        action
-      ],
+      {
+        update: t("修改文件夹"),
+        move: t("移动文件夹"),
+        delete: t("删除文件夹"),
+      }[action],
       async (ctx, [id], o) => {
         const api = await ctx.client(),
           spaceId = await ctx.space();
         const folderId = required(
           (await folderPath(api, spaceId, id)) ?? undefined,
-          "非根目录",
+          t("非根目录"),
         );
         const { rowVersion, name } = await api("folder.detail", {
           spaceId,
@@ -660,7 +673,7 @@ export function commands(root: Command, register: Register) {
         const base = { spaceId, folderId, expectedRowVersion: rowVersion };
         if (action === "update") {
           if (o.name === undefined && o.description === undefined)
-            throw usage("请指定 --name 或 --description");
+            throw usage(t("请指定 --name 或 --description"));
           const params = { ...base, name: o.name, description: o.description };
           return ctx.opts.dryRun
             ? { dryRun: true, ...params }
@@ -679,7 +692,7 @@ export function commands(root: Command, register: Register) {
         }
         const recursive = Boolean(o.recursive);
         return (
-          (await ctx.confirm("删除文件夹", {
+          (await ctx.confirm(t("删除文件夹"), {
             spaceId,
             folderId,
             name,
@@ -699,7 +712,7 @@ export function commands(root: Command, register: Register) {
   add(
     root,
     "open <id>",
-    "打开 WebUI 文件、分享或专辑",
+    t("打开 WebUI 文件、分享或专辑"),
     (ctx, [id], o) => openResource(ctx, id, o),
     (c) =>
       c
@@ -709,18 +722,18 @@ export function commands(root: Command, register: Register) {
         .option("--revision <id>")
         .option("--block <id>"),
   );
-  const share = group("share", "管理分享页");
+  const share = group("share", t("管理分享页"));
   add(
     share,
     "open <id>",
-    "打开分享页",
+    t("打开分享页"),
     (ctx, [id], o) => openResource(ctx, id, o, true),
     (c) => c.option("--url"),
   );
   add(
     share,
     "list",
-    "列出分享页",
+    t("列出分享页"),
     async (ctx, _, o) =>
       (await ctx.client())("sharePage.list", {
         spaceId: await ctx.space(),
@@ -728,7 +741,7 @@ export function commands(root: Command, register: Register) {
       }),
     paginate,
   );
-  add(share, "get <id>", "查看分享页", async (ctx, [id]) =>
+  add(share, "get <id>", t("查看分享页"), async (ctx, [id]) =>
     (await ctx.client())("sharePage.detail", {
       spaceId: await ctx.space(),
       id,
@@ -737,7 +750,7 @@ export function commands(root: Command, register: Register) {
   add(
     share,
     "create",
-    "创建分享并添加文件",
+    t("创建分享并添加文件"),
     async (ctx, _, o) => {
       const api = await ctx.client(),
         spaceId = await ctx.space();
@@ -756,7 +769,7 @@ export function commands(root: Command, register: Register) {
       ];
       for (const fileId of files) await api("file.detail", { spaceId, fileId });
       const preview = await ctx.confirm(
-        "创建分享页",
+        t("创建分享页"),
         { spaceId, title, files },
         true,
       );
@@ -789,7 +802,7 @@ export function commands(root: Command, register: Register) {
               ok: false,
               error: new CliError(
                 "NOT_ATTEMPTED",
-                "前序条目失败，未添加此条目",
+                t("前序条目失败，未添加此条目"),
                 10,
               ),
             });
@@ -809,7 +822,7 @@ export function commands(root: Command, register: Register) {
   add(
     share,
     "update <id>",
-    "更新分享页属性或策略",
+    t("更新分享页属性或策略"),
     async (ctx, [id], o) => {
       const api = await ctx.client(),
         spaceId = await ctx.space();
@@ -818,12 +831,12 @@ export function commands(root: Command, register: Register) {
         description: o.description,
       });
       if (!Object.keys(input).length)
-        throw usage("请通过 --input 或选项指定要更新的属性");
+        throw usage(t("请通过 --input 或选项指定要更新的属性"));
       const {
         page: { rowVersion },
       } = await api("sharePage.detail", { spaceId, id });
       return (
-        (await ctx.confirm("更新分享页", {
+        (await ctx.confirm(t("更新分享页"), {
           spaceId,
           id,
           fields: Object.keys(input),
@@ -832,23 +845,23 @@ export function commands(root: Command, register: Register) {
     },
     (c) => payload(c).option("--title <title>").option("--description <text>"),
   );
-  add(share, "revoke <id>", "禁用分享页", async (ctx, [id]) => {
+  add(share, "revoke <id>", t("禁用分享页"), async (ctx, [id]) => {
     const api = await ctx.client(),
       spaceId = await ctx.space();
     const {
       page: { rowVersion, slug },
     } = await api("sharePage.detail", { spaceId, id });
     return (
-      (await ctx.confirm("禁用分享页", { spaceId, id, slug })) ??
+      (await ctx.confirm(t("禁用分享页"), { spaceId, id, slug })) ??
       api("sharePage.modify", { spaceId, id, rowVersion, status: "disabled" })
     );
   });
 
-  const album = group("album", "管理文件夹专辑");
+  const album = group("album", t("管理文件夹专辑"));
   add(
     album,
     "list",
-    "列出专辑",
+    t("列出专辑"),
     async (ctx, _, o) =>
       (await ctx.client())("album.list", {
         spaceId: await ctx.space(),
@@ -856,7 +869,7 @@ export function commands(root: Command, register: Register) {
       }),
     paginate,
   );
-  add(album, "get <id>", "查看专辑", async (ctx, [albumId]) =>
+  add(album, "get <id>", t("查看专辑"), async (ctx, [albumId]) =>
     (await ctx.client())("album.detail", {
       spaceId: await ctx.space(),
       albumId,
@@ -865,7 +878,7 @@ export function commands(root: Command, register: Register) {
   add(
     album,
     "subscribers <id>",
-    "列出订阅",
+    t("列出订阅"),
     async (ctx, [albumId], o) =>
       (await ctx.client())("album.subscriptions", {
         spaceId: await ctx.space(),
@@ -877,7 +890,7 @@ export function commands(root: Command, register: Register) {
   add(
     album,
     "create",
-    "创建动态专辑",
+    t("创建动态专辑"),
     async (ctx, _, o) => {
       const api = await ctx.client(),
         spaceId = await ctx.space();
@@ -896,7 +909,7 @@ export function commands(root: Command, register: Register) {
             "--folder",
           ),
         )) ?? undefined,
-        "非根目录",
+        t("非根目录"),
       );
       const config = {
         description: "",
@@ -918,7 +931,11 @@ export function commands(root: Command, register: Register) {
         folderId,
       } as Params<"album.add">["config"];
       return (
-        (await ctx.confirm("创建专辑", { spaceId, folderId, title }, true)) ??
+        (await ctx.confirm(
+          t("创建专辑"),
+          { spaceId, folderId, title },
+          true,
+        )) ??
         api("album.add", { spaceId, config, idempotencyKey: randomUUID() })
       );
     },
@@ -927,7 +944,7 @@ export function commands(root: Command, register: Register) {
   add(
     album,
     "update <id>",
-    "替换专辑配置",
+    t("替换专辑配置"),
     async (ctx, [albumId], o) => {
       const api = await ctx.client(),
         spaceId = await ctx.space();
@@ -936,9 +953,9 @@ export function commands(root: Command, register: Register) {
       )) as Params<"album.modify">["config"];
       const { rowVersion } = await api("album.detail", { spaceId, albumId });
       if (typeof rowVersion !== "number")
-        throw new CliError("INVALID_ALBUM_VERSION", "服务端缺少专辑版本", 9);
+        throw new CliError("INVALID_ALBUM_VERSION", t("服务端缺少专辑版本"), 9);
       return (
-        (await ctx.confirm("替换专辑配置", {
+        (await ctx.confirm(t("替换专辑配置"), {
           spaceId,
           albumId,
           fields: Object.keys(config),
@@ -947,12 +964,12 @@ export function commands(root: Command, register: Register) {
     },
     payload,
   );
-  add(album, "delete <id>", "删除专辑", async (ctx, [albumId]) => {
+  add(album, "delete <id>", t("删除专辑"), async (ctx, [albumId]) => {
     const api = await ctx.client(),
       spaceId = await ctx.space();
     const current = await api("album.detail", { spaceId, albumId });
     return (
-      (await ctx.confirm("删除专辑", {
+      (await ctx.confirm(t("删除专辑"), {
         spaceId,
         albumId,
         title: current.title,
@@ -961,7 +978,7 @@ export function commands(root: Command, register: Register) {
     );
   });
 
-  const billing = group("usage", "查看服务端用量");
+  const billing = group("usage", t("查看服务端用量"));
   const usageCommand = (mode: string) => async (ctx: Context) => {
     const result = await (
       await ctx.client()
@@ -1002,12 +1019,12 @@ export function commands(root: Command, register: Register) {
   };
   register(billing, usageCommand("summary"));
   for (const mode of ["summary", "storage", "traffic", "credits"])
-    add(billing, mode, "查看用量", usageCommand(mode));
+    add(billing, mode, t("查看用量"), usageCommand(mode));
 
   add(
     root,
     "api <sdk-method>",
-    "直接调用 DeckBase SDK 方法",
+    t("直接调用 DeckBase SDK 方法"),
     async (ctx, [name], o) => {
       const method = methodOf(name);
       const params = await inputJson(o.input);
@@ -1019,17 +1036,17 @@ export function commands(root: Command, register: Register) {
           writes: !isRead(method),
         };
       if (!isRead(method) && !ctx.opts.yes)
-        throw usage("非只读 SDK 调用需要显式 --yes");
+        throw usage(t("非只读 SDK 调用需要显式 --yes"));
       return (await ctx.client())(method, params as Params<Method>);
     },
-    (c) => c.option("--input <json-file|->", "读取 SDK 参数 JSON"),
+    (c) => c.option("--input <json-file|->", t("读取 SDK 参数 JSON")),
   );
 
   function placeholder(parent: Command, name: string, label = name) {
     add(
       parent,
       `${name} [args...]`,
-      "后续支持",
+      t("后续支持"),
       async () => {
         throw unsupported(label);
       },
@@ -1040,7 +1057,7 @@ export function commands(root: Command, register: Register) {
   for (const name of ["archive", "restore"])
     placeholder(file, name, `file ${name}`);
   placeholder(rev, "activate", "revision activate");
-  const action = group("action", "通用任务，后续支持");
+  const action = group("action", t("通用任务，后续支持"));
   for (const name of ["list", "run", "status", "cancel"])
     placeholder(action, name, `action ${name}`);
 }

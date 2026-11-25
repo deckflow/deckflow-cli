@@ -1,5 +1,9 @@
 # 命令参考
 
+**中文** | [English](commands.en.md)
+
+界面语言可通过 `--lang en|zh|auto`、`DECKFLOW_LANG` 或 `config set lang en|zh|auto` 设置，优先级依次递减；`auto` 直接读取系统语言。配置命令支持 `lang`、`apiUrl`、`webUrl` 和 `space`。
+
 所有命令支持 `--json`；详情见各命令 `--help`。对象接受绝对工作空间路径或 `id:<id>`，本地路径仅用于 put/get。相对远端路径不受支持。
 
 | 命令              | 行为                                                                                        |

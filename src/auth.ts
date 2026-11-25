@@ -1,3 +1,4 @@
+import { t } from "./i18n.mjs";
 import { randomBytes } from "node:crypto";
 import { createServer } from "node:http";
 import { createClient, type Method, type Params } from "@deckflow/deckbase-sdk";
@@ -9,7 +10,7 @@ import { callbackPage, callbackPageCsp } from "./auth-page.js";
 export function authorizationMode(value?: string) {
   const mode = value?.toLowerCase();
   if (mode !== undefined && mode !== "apikey" && mode !== "token")
-    throw usage("--mode 必须是 apikey 或 token");
+    throw usage(t("--mode 必须是 apikey 或 token"));
   return mode;
 }
 
@@ -19,7 +20,7 @@ function secureEndpoint(value: string) {
     url.protocol !== "https:" &&
     !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)
   )
-    throw usage("浏览器授权需要 HTTPS 地址（localhost 除外）");
+    throw usage(t("浏览器授权需要 HTTPS 地址（localhost 除外）"));
   return url;
 }
 
@@ -64,15 +65,15 @@ export async function browserLogin(
     try {
       url = new URL(req.url || "/", "http://127.0.0.1");
     } catch {
-      res.writeHead(400).end("Invalid callback URL");
+      res.writeHead(400).end(t("无效的回调地址"));
       return;
     }
     if (req.method !== "GET") {
-      res.writeHead(405).end("Method not allowed");
+      res.writeHead(405).end(t("不支持的请求方法"));
       return;
     }
     if (url.pathname !== "/callback") {
-      res.writeHead(404).end("Not found");
+      res.writeHead(404).end(t("未找到"));
       return;
     }
     const address = server.address();
@@ -82,17 +83,17 @@ export async function browserLogin(
       req.headers.host !== `127.0.0.1:${address.port}` ||
       url.searchParams.get("state") !== state
     ) {
-      res.writeHead(400).end("Invalid callback state or host");
+      res.writeHead(400).end(t("回调状态或主机无效"));
       return;
     }
     if (received) {
-      res.writeHead(409).end("Callback already received");
+      res.writeHead(409).end(t("已收到回调"));
       return;
     }
     received = true;
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.setHeader("Content-Security-Policy", callbackPageCsp);
-    res.end(callbackPage);
+    res.end(callbackPage());
     notify(true);
   });
   const client = createClient(apiUrl, "", async (input, init) => {
@@ -111,7 +112,7 @@ export async function browserLogin(
       await response.body?.cancel();
       throw new CliError(
         "INVALID_API_ENDPOINT",
-        "API 地址返回重定向，请更新 API 基础地址",
+        t("API 地址返回重定向，请更新 API 基础地址"),
       );
     }
     return response;
@@ -144,9 +145,9 @@ export async function browserLogin(
     controller.signal.throwIfAborted();
     const address = server.address();
     if (!address || typeof address === "string")
-      throw new CliError("AUTH_CALLBACK_FAILED", "无法启动本地授权回调服务");
+      throw new CliError("AUTH_CALLBACK_FAILED", t("无法启动本地授权回调服务"));
     const redirectUri = `http://127.0.0.1:${address.port}/callback`;
-    process.stderr.write("正在创建浏览器授权请求…\n");
+    process.stderr.write(t("正在创建浏览器授权请求…\n"));
     const request = await call("cliAuth.create", {
       clientName: "DeckFlow CLI",
       mode,
@@ -161,7 +162,10 @@ export async function browserLogin(
       request.expiresIn <= 0 ||
       !request.verificationPath
     )
-      throw new CliError("INVALID_AUTH_RESPONSE", "服务端返回了无效的授权请求");
+      throw new CliError(
+        "INVALID_AUTH_RESPONSE",
+        t("服务端返回了无效的授权请求"),
+      );
     expiryTimer = setTimeout(
       () => {
         expired = true;
@@ -173,19 +177,22 @@ export async function browserLogin(
     if (link.origin !== web.origin || link.username || link.password)
       throw new CliError(
         "INVALID_AUTH_RESPONSE",
-        "授权链接必须属于配置的 Web 地址",
+        t("授权链接必须属于配置的 Web 地址"),
       );
     process.stderr.write(
-      `请在浏览器中授权：${link.href}\n核对授权码：${request.userCode}\n`,
+      t("请在浏览器中授权：{0}\n核对授权码：{1}\n", [
+        link.href,
+        request.userCode,
+      ]),
     );
     if (browser && ctx.canOpen) {
       try {
         await openBrowser(link.href);
       } catch {
-        process.stderr.write("无法自动打开浏览器，请手动打开上面的链接。\n");
+        process.stderr.write(t("无法自动打开浏览器，请手动打开上面的链接。\n"));
       }
     }
-    process.stderr.write("正在等待浏览器授权…（Ctrl+C 取消）\n");
+    process.stderr.write(t("正在等待浏览器授权…（Ctrl+C 取消）\n"));
     if (!(await callback)) controller.signal.throwIfAborted();
     let retries = 0;
     for (;;) {
@@ -195,14 +202,14 @@ export async function browserLogin(
         if (result.status === "pending")
           throw new CliError(
             "AUTH_CALLBACK_FAILED",
-            "授权尚未完成，请重新登录",
+            t("授权尚未完成，请重新登录"),
             3,
           );
         if (result.status !== "redeemed") {
           const messages = {
-            denied: "用户拒绝了授权",
-            cancelled: "授权已取消",
-            expired: "授权已过期，请重新登录",
+            denied: t("用户拒绝了授权"),
+            cancelled: t("授权已取消"),
+            expired: t("授权已过期，请重新登录"),
           };
           throw new CliError(
             `AUTH_${result.status.toUpperCase()}`,
@@ -219,7 +226,7 @@ export async function browserLogin(
         )
           throw new CliError(
             "INVALID_AUTH_RESPONSE",
-            "服务端返回了无效的授权凭据",
+            t("服务端返回了无效的授权凭据"),
             3,
           );
         try {
@@ -227,11 +234,11 @@ export async function browserLogin(
         } catch {
           throw new CliError(
             "AUTH_SAVE_FAILED",
-            "无法保存登录凭据，请检查本地配置目录权限",
+            t("无法保存登录凭据，请检查本地配置目录权限"),
             2,
           );
         }
-        process.stderr.write("授权完成，凭据已安全保存。\n");
+        process.stderr.write(t("授权完成，凭据已安全保存。\n"));
         return {
           authenticated: true,
           mode: result.mode,
@@ -248,7 +255,7 @@ export async function browserLogin(
           e.name === "TimeoutError"
         ) {
           if (++retries > 3) throw error;
-          process.stderr.write("凭据兑换暂时失败，稍后重试…\n");
+          process.stderr.write(t("凭据兑换暂时失败，稍后重试…\n"));
           await delay(
             Math.min(
               2147483647,
@@ -266,13 +273,13 @@ export async function browserLogin(
     if (controller.signal.aborted)
       throw new CliError(
         expired ? "AUTH_EXPIRED" : "CANCELLED",
-        expired ? "授权等待超时，请重新登录" : "授权已取消",
+        expired ? t("授权等待超时，请重新登录") : t("授权已取消"),
         expired ? 3 : 2,
       );
     if (error instanceof CliError) throw error;
     throw new CliError(
       "AUTH_FAILED",
-      "浏览器授权失败，请检查服务地址和网络后重试",
+      t("浏览器授权失败，请检查服务地址和网络后重试"),
       3,
       { status: (error as { status?: number }).status },
     );

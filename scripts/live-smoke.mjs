@@ -1,3 +1,4 @@
+import { t } from "../src/i18n.mjs";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -8,7 +9,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 const space = process.env.DECKFLOW_SMOKE_SPACE;
 if (!space || !process.env.DECKFLOW_API_URL || !process.env.DECKFLOW_TOKEN)
   throw Error(
-    "需要专用 DECKFLOW_SMOKE_SPACE、DECKFLOW_API_URL、DECKFLOW_TOKEN",
+    t("需要专用 DECKFLOW_SMOKE_SPACE、DECKFLOW_API_URL、DECKFLOW_TOKEN"),
   );
 const temp = await mkdtemp(join(tmpdir(), "deckflow-live-")),
   folder = "/deckflow-smoke-" + randomUUID();
@@ -53,9 +54,12 @@ try {
   run(["cp", target, folder + "/copy.txt"]);
   run(["mv", folder + "/copy.txt", folder + "/renamed.txt"]);
   assert.equal(run(["ls", folder]).items.length, 2);
-  console.log("上传下载、覆盖版本、恢复、复制移动验证通过");
+  console.log(t("上传下载、覆盖版本、恢复、复制移动验证通过"));
 } catch (error) {
-  console.error("冒烟主流程失败：", error.stdout?.toString() || error.message);
+  console.error(
+    t("冒烟主流程失败："),
+    error.stdout?.toString() || error.message,
+  );
   if (!created) {
     try {
       created = run(["info", folder]).kind === "directory";
@@ -87,16 +91,20 @@ try {
           done = true;
           break;
         }
-        if (task.state === "failed") throw Error("测试资源清理失败");
+        if (task.state === "failed") throw Error(t("测试资源清理失败"));
         await sleep(1000);
       }
       if (!done)
         throw Error(
-          `清理仍在运行：${folder}；使用 deckflow jobs status ${deleted.job_id} --ws ${space} 查询`,
+          t("清理仍在运行：{0}；使用 deckflow jobs status {1} --ws {2} 查询", [
+            folder,
+            deleted.job_id,
+            space,
+          ]),
         );
     }
   } catch (error) {
-    console.error("清理失败：", error.stdout?.toString() || error.message);
+    console.error(t("清理失败："), error.stdout?.toString() || error.message);
     throw error;
   } finally {
     await rm(temp, { recursive: true, force: true });

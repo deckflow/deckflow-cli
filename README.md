@@ -1,5 +1,7 @@
 # DeckFlow CLI
 
+**中文** | [English](README.en.md)
+
 `deckflow` 是面向开发者、Agent 和 CI 的 DeckBase 文件命令行客户端，提供文件与目录管理、内容检索、已有文本与视觉预览读取、文件处理任务和版本管理。当前源码包版本为 `0.3.0`，命令设计遵循 v0.3 规范。
 
 ## 安装
@@ -23,6 +25,19 @@ GitHub Packages 是独立的可选发布渠道。使用该渠道时，将下面�
 ```sh
 npm install -g @deckflow/deckflow-cli
 ```
+
+## 界面语言
+
+默认自动检测系统语言；中文系统使用简体中文，其他不支持的语言回退英文。
+
+```sh
+deckflow config set lang zh
+deckflow config set lang en
+deckflow config set lang auto
+deckflow --lang en --help
+```
+
+优先级：`--lang` → `DECKFLOW_LANG` → 已保存的 `lang` → 系统语言。任一层显式设置 `auto` 时直接读取系统语言。系统检测识别 `LANGUAGE`、`LC_ALL`、`LC_MESSAGES`、`LANG`，缺失时读取 Intl 默认 locale；`C/POSIX` 使用英文。语言设置无需登录或配置服务端。命令名、参数名、错误码及 JSON 字段保持固定；CLI 生成的错误说明和提示跟随语言，用户内容及服务端原始原因保持原文。本地授权回调页跟随 CLI，DeckBase 授权网站使用独立网页语言设置。
 
 ## 快速开始
 

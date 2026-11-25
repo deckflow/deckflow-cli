@@ -1,3 +1,4 @@
+import { t } from "../src/i18n.mjs";
 import { execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:http";
 import {
@@ -105,18 +106,18 @@ try {
   assert.equal(
     metadata.version,
     expectedVersion,
-    "Installed package version must match the release target",
+    t("安装包版本必须与发布目标一致"),
   );
   assert.equal(
     metadata.bin?.deckflow,
     "dist/cli.js",
-    "Package must declare its deckflow entry",
+    t("安装包必须声明 deckflow 命令入口"),
   );
   const localBin = join(temp, "node_modules/.bin/deckflow");
   if (process.platform === "win32") {
     assert.ok(
       (await lstat(localBin + ".cmd")).isFile(),
-      "Local command shim must exist",
+      t("本地命令启动文件必须存在"),
     );
     const shim = (await readFile(localBin + ".cmd", "utf8")).replaceAll(
       "\\",
@@ -124,17 +125,17 @@ try {
     );
     assert.ok(
       shim.includes("@deckflow/deckflow-cli/dist/cli.js"),
-      "Command shim must target the installed candidate",
+      t("命令启动文件必须指向待验证安装包"),
     );
   } else {
     assert.ok(
       (await lstat(localBin)).isSymbolicLink(),
-      "Local command link must exist",
+      t("本地命令链接必须存在"),
     );
     assert.equal(
       await realpath(localBin),
       await realpath(join(installed, metadata.bin.deckflow)),
-      "Command link must target the installed candidate",
+      t("命令链接必须指向待验证安装包"),
     );
   }
   const readme = await readFile(join(installed, "README.md"), "utf8");
@@ -142,20 +143,32 @@ try {
     readme.includes(
       `npm install -g ${metadata.name} --registry=https://registry.npmjs.org`,
     ),
-    "README must prefer the public npm package",
+    t("README 必须优先使用公共 npm 安装渠道"),
   );
   for (const match of readme.matchAll(/deckflow-deckflow-cli-([^\s`]+)\.tgz/g))
     assert.equal(
       match[1],
       metadata.version,
-      "README archive version must match the package",
+      t("README 安装包版本必须与软件包一致"),
     );
   npmCommand("npm", ["run", "bin:check"]);
-  assert.match(await run(["--help"]), /Usage: deckflow/);
+  assert.match(await run(["--lang", "en", "--help"]), /Usage: deckflow/);
+  assert.match(await run(["--lang", "zh", "--help"]), /用法： deckflow/);
+  for (const name of [
+    "README.en.md",
+    "docs/commands.en.md",
+    "docs/auth-and-workspaces.en.md",
+    "docs/automation.en.md",
+    "docs/migration-v03.en.md",
+  ])
+    assert.ok((await readFile(join(installed, name), "utf8")).length > 0);
+  await run(["config", "set", "lang", "zh", "--json"]);
+  assert.match(await run(["--help"], { DECKFLOW_LANG: "" }), /用法：/);
+  await run(["config", "set", "lang", "auto", "--json"]);
   assert.equal(
     (await run(["--version"])).trim(),
     expectedVersion,
-    "CLI version must match the release target",
+    t("CLI 版本必须与发布目标一致"),
   );
   await new Promise((ok) => server.listen(0, "127.0.0.1", ok));
   const result = await run(["ws", "info", "space", "--json"], {
@@ -166,7 +179,7 @@ try {
     id: "example",
     name: "packed.pdf",
   });
-  console.log("Installed bin, help, version and SDK request passed.");
+  console.log(t("安装命令、帮助、版本与 SDK 请求验证通过。"));
 } finally {
   server.close();
   await rm(temp, { recursive: true, force: true });

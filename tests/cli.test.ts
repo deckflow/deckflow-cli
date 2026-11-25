@@ -98,6 +98,7 @@ async function cli(
         cwd,
         env: {
           ...process.env,
+          DECKFLOW_LANG: "zh",
           DECKFLOW_API_URL: base + "/api",
           DECKFLOW_WEB_URL: base + "/web",
           DECKFLOW_WORKSPACE: "ws",
@@ -1785,7 +1786,7 @@ it("issue 42: missing subcommands use the unified JSON error contract", async ()
     expect(error.code).toBe("INVALID_ARGUMENT");
     expect(error.message).toContain(command + " 需要子命令");
   }
-  expect((await cli(["config", "--help"])).stdout).toContain("Usage:");
+  expect((await cli(["config", "--help"])).stdout).toContain("用法：");
   expect(requests).toEqual([]);
 });
 
@@ -1798,7 +1799,13 @@ async function scriptRun(
     (done, fail) => {
       const child = spawn(node, [path], {
         cwd,
-        env: { ...process.env, HOME: temp, USERPROFILE: temp, ...env },
+        env: {
+          ...process.env,
+          DECKFLOW_LANG: "zh",
+          HOME: temp,
+          USERPROFILE: temp,
+          ...env,
+        },
         stdio: ["ignore", "pipe", "pipe"],
       });
       let stdout = "",
@@ -1814,7 +1821,10 @@ it("issue 67: failed release typechecking prevents packing or publishing", async
   await mkdir(join(temp, "scripts"));
   await writeFile(
     join(temp, "scripts", "release.mjs"),
-    await readFile(resolve("scripts/release.mjs")),
+    (await readFile(resolve("scripts/release.mjs"), "utf8")).replace(
+      "../src/i18n.mjs",
+      new URL("../src/i18n.mjs", import.meta.url).href,
+    ),
   );
   await writeFile(
     join(temp, "package.json"),
@@ -2311,7 +2321,12 @@ async function smokeFixture(
 ) {
   await mkdir(join(temp, "dist"));
   await writeFile(join(temp, "dist", "cli.js"), stub);
-  let source = await readFile(resolve("scripts/live-smoke.mjs"), "utf8");
+  let source = (
+    await readFile(resolve("scripts/live-smoke.mjs"), "utf8")
+  ).replace(
+    "../src/i18n.mjs",
+    new URL("../src/i18n.mjs", import.meta.url).href,
+  );
   if (fast)
     source = source.replace("await sleep(1000)", "await Promise.resolve()");
   const script = join(temp, "smoke.mjs");

@@ -1,3 +1,4 @@
+import { t } from "./i18n.mjs";
 import {
   createClient,
   type Method,
@@ -35,8 +36,9 @@ export class CliError extends Error {
 export const usage = (message: string) =>
   new CliError("INVALID_ARGUMENT", message);
 export const unsupported = (feature: string) =>
-  new CliError("UNSUPPORTED_OPERATION", `${feature}：当前后端不支持`, 2);
+  new CliError("UNSUPPORTED_OPERATION", t("{0}：当前后端不支持", [feature]), 2);
 export type Globals = {
+  lang?: string;
   space?: string;
   ws?: string;
   quiet?: boolean;
@@ -50,6 +52,12 @@ export type Globals = {
   verbose?: boolean;
 };
 export const configFields = {
+  lang: {
+    storedAs: "lang",
+    format: "language",
+    description: "语言：en、zh 或 auto。",
+    example: "en",
+  },
   apiUrl: {
     storedAs: "apiRoot",
     format: "url",
@@ -73,7 +81,7 @@ export type Config = Partial<Record<keyof typeof configFields, string>>;
 
 export function configKey(key: string): keyof Config {
   if (!Object.hasOwn(configFields, key))
-    throw usage(`配置项必须是 ${Object.keys(configFields).join("、")}`);
+    throw usage(t("配置项必须是 {0}", [Object.keys(configFields).join(", ")]));
   return key as keyof Config;
 }
 export function endpoint(value: string, label: string) {
@@ -81,7 +89,7 @@ export function endpoint(value: string, label: string) {
   try {
     url = new URL(value);
   } catch {
-    throw usage(`${label} 必须是完整 URL`);
+    throw usage(t("{0} 必须是完整 URL", [label]));
   }
   if (
     !["https:", "http:"].includes(url.protocol) ||
@@ -90,7 +98,7 @@ export function endpoint(value: string, label: string) {
     value.includes("?") ||
     value.includes("#")
   )
-    throw usage(`${label} 必须是无凭据、查询和片段的 HTTP(S) URL`);
+    throw usage(t("{0} 必须是无凭据、查询和片段的 HTTP(S) URL", [label]));
   return url.href.replace(/\/$/, "");
 }
 export async function readJson<T>(path: string): Promise<T | undefined> {
@@ -98,7 +106,7 @@ export async function readJson<T>(path: string): Promise<T | undefined> {
     return JSON.parse(await readFile(path, "utf8")) as T;
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code === "ENOENT") return;
-    throw usage("无法读取 JSON 配置或操作状态");
+    throw usage(t("无法读取 JSON 配置或操作状态"));
   }
 }
 export async function saveJson(path: string, value: unknown) {
@@ -126,7 +134,7 @@ export async function inputJson(
       throw Error();
     return value as Record<string, unknown>;
   } catch {
-    throw usage("--input 需要一个 JSON 对象");
+    throw usage(t("--input 需要一个 JSON 对象"));
   }
 }
 export async function stdinText() {
@@ -134,13 +142,13 @@ export async function stdinText() {
   process.stdin.setEncoding("utf8");
   for await (const chunk of process.stdin) {
     value += chunk;
-    if (value.length > 1024 * 1024) throw usage("输入超过 1 MiB");
+    if (value.length > 1024 * 1024) throw usage(t("输入超过 1 MiB"));
   }
   return value;
 }
 export async function hiddenToken(): Promise<string> {
   const input = process.stdin;
-  if (!input.isTTY) throw usage("请使用 --token-stdin 或 DECKFLOW_TOKEN");
+  if (!input.isTTY) throw usage(t("请使用 --token-stdin 或 DECKFLOW_TOKEN"));
   const previous = input.isRaw;
   emitKeypressEvents(input);
   input.setRawMode(true);
@@ -155,7 +163,7 @@ export async function hiddenToken(): Promise<string> {
       }
       function onKey(text: string | undefined, key: Key) {
         if (key.ctrl && ["c", "d"].includes(key.name ?? ""))
-          return finish(usage("已取消"));
+          return finish(usage(t("已取消")));
         if (["return", "enter"].includes(key.name ?? "")) return finish();
         if (key.name === "backspace")
           value = Array.from(value).slice(0, -1).join("");
@@ -182,7 +190,7 @@ export function duration(value: string) {
     ? Number(m[1]) * ({ ms: 1, s: 1000, m: 60000, h: 3600000 }[m[2]] ?? 0)
     : 0;
   if (!ms || ms > 2147483647)
-    throw usage("时长应为正数和单位，例如 30s 或 10m");
+    throw usage(t("时长应为正数和单位，例如 30s 或 10m"));
   return ms;
 }
 export function integer(
@@ -192,7 +200,7 @@ export function integer(
 ) {
   const n = Number(value);
   if (!/^\d+$/.test(value) || !Number.isSafeInteger(n) || n < min || n > max)
-    throw usage(`整数范围为 ${min}–${max}`);
+    throw usage(t("整数范围为 {0}–{1}", [min, max]));
   return n;
 }
 export function page(o: { limit?: string; offset?: string }) {
@@ -303,7 +311,7 @@ export class Context {
     )
       throw new CliError(
         "INVALID_CLIENT_UUID",
-        "客户端标识文件 ~/.deckflow/auth-uuid 不是有效的 UUID v4",
+        t("客户端标识文件 ~/.deckflow/auth-uuid 不是有效的 UUID v4"),
         2,
       );
     return value;
@@ -317,10 +325,14 @@ export class Context {
       Array.isArray(data) ||
       Object.values(data).some((value) => typeof value !== "string")
     )
-      throw usage("凭据配置必须是字符串字段组成的 JSON 对象");
+      throw usage(t("凭据配置必须是字符串字段组成的 JSON 对象"));
     return data as StoredCredentials;
   }
   private async updateCredentials(update: (data: StoredCredentials) => void) {
+    await mkdir(dirname(this.credentialsPath), {
+      recursive: true,
+      mode: 0o700,
+    });
     const release = await lockfile.lock(this.credentialsPath, {
       realpath: false,
       retries: { retries: 30, minTimeout: 25, maxTimeout: 250 },
@@ -335,11 +347,14 @@ export class Context {
   }
   async config(): Promise<Config> {
     const data = await this.credentials();
-    return Object.fromEntries(
-      Object.entries(configFields)
-        .map(([key, field]) => [key, data[field.storedAs]])
-        .filter(([, value]) => value !== undefined),
-    );
+    return {
+      lang: "auto",
+      ...Object.fromEntries(
+        Object.entries(configFields)
+          .map(([key, field]) => [key, data[field.storedAs]])
+          .filter(([, value]) => value !== undefined),
+      ),
+    };
   }
   async setConfig(key: keyof Config, value: string) {
     await this.updateCredentials((data) => {
@@ -366,7 +381,7 @@ export class Context {
   async spaceInfo() {
     if (this.opts.ws !== undefined) {
       if (!this.opts.ws.trim())
-        throw usage("--ws 不能为空，请用 ws ls 获取工作空间 ID");
+        throw usage(t("--ws 不能为空，请用 ws ls 获取工作空间 ID"));
       return { id: this.opts.ws, source: "flag" };
     }
     if (this.env.DECKFLOW_WORKSPACE)
@@ -379,20 +394,20 @@ export class Context {
     if (!id)
       throw new CliError(
         "WORKSPACE_REQUIRED",
-        "请用 ws use <id> 绑定工作空间，或指定 --ws",
+        t("请用 ws use <id> 绑定工作空间，或指定 --ws"),
         2,
       );
     return id;
   }
   async apiUrl() {
     const value = this.env.DECKFLOW_API_URL || (await this.config()).apiUrl;
-    if (!value) throw usage("请配置 DECKFLOW_API_URL 或 config set apiUrl");
-    return endpoint(value, "API 地址");
+    if (!value) throw usage(t("请配置 DECKFLOW_API_URL 或 config set apiUrl"));
+    return endpoint(value, t("API 地址"));
   }
   async webUrl() {
     const value = this.env.DECKFLOW_WEB_URL || (await this.config()).webUrl;
-    if (!value) throw usage("请配置 DECKFLOW_WEB_URL 或 config set webUrl");
-    return endpoint(value, "Web 地址");
+    if (!value) throw usage(t("请配置 DECKFLOW_WEB_URL 或 config set webUrl"));
+    return endpoint(value, t("Web 地址"));
   }
   async credentialScope() {
     const url = await this.apiUrl();
@@ -400,7 +415,7 @@ export class Context {
     const token =
       this.env.DECKFLOW_TOKEN ||
       ((data.tokenApiRoot ?? data.apiRoot) === url ? data.token : undefined);
-    if (!token) throw new CliError("AUTH_REQUIRED", "请先登录", 3);
+    if (!token) throw new CliError("AUTH_REQUIRED", t("请先登录"), 3);
     return createHash("sha256").update(token).digest("hex");
   }
   async client(credential?: string, apiUrl?: string): Promise<ApiCall> {
@@ -413,7 +428,7 @@ export class Context {
     if (!token)
       throw new CliError(
         "AUTH_REQUIRED",
-        "请先 auth login 或设置 DECKFLOW_TOKEN",
+        t("请先 auth login 或设置 DECKFLOW_TOKEN"),
         3,
       );
     const client = createClient(
@@ -428,7 +443,7 @@ export class Context {
           await response.body?.cancel();
           throw new CliError(
             "INVALID_API_ENDPOINT",
-            "API 地址返回重定向，请更新配置中的 API 基础地址",
+            t("API 地址返回重定向，请更新配置中的 API 基础地址"),
             2,
             { status: response.status },
           );
@@ -438,7 +453,7 @@ export class Context {
           response.headers.get("X-Transient-Network-Error") === "1"
         ) {
           const error = await response.json().catch(() => ({}));
-          throw Object.assign(new Error("API 暂态网络故障"), error, {
+          throw Object.assign(new Error(t("API 暂态网络故障")), error, {
             status: response.status,
             transientNetwork: true,
           });
@@ -484,7 +499,7 @@ export class Context {
     };
     if (this.opts.dryRun) return { dryRun: true, ...impact };
     if (this.opts.yes) return;
-    if (!this.interactive) throw usage("此操作需要 --yes 或 --dry-run");
+    if (!this.interactive) throw usage(t("此操作需要 --yes 或 --dry-run"));
     const rl = createInterface({
       input: process.stdin,
       output: process.stderr,
@@ -493,16 +508,16 @@ export class Context {
     const cancel = () => cancellation.abort();
     rl.once("SIGINT", cancel);
     try {
-      const suffix = cost ? "，费用未知" : "";
+      const suffix = cost ? t("，费用未知") : "";
       const answer = await rl.question(
-        `${label} ${JSON.stringify(impact)}${suffix}。继续？[y/N] `,
+        t("{0} {1}{2}。继续？[y/N] ", [label, JSON.stringify(impact), suffix]),
         { signal: cancellation.signal },
       );
       if (!/^y(es)?$/i.test(answer.trim()))
-        throw new CliError("CANCELLED", "已取消");
+        throw new CliError("CANCELLED", t("已取消"));
     } catch (error) {
       if (cancellation.signal.aborted)
-        throw new CliError("CANCELLED", "已取消", 2);
+        throw new CliError("CANCELLED", t("已取消"), 2);
       throw error;
     } finally {
       rl.off("SIGINT", cancel);
@@ -527,7 +542,7 @@ export async function poll<T>(
   }
 }
 export function methodOf(value: string): Method {
-  if (!Object.hasOwn(methods, value)) throw usage("未知 DeckBase SDK 方法");
+  if (!Object.hasOwn(methods, value)) throw usage(t("未知 DeckBase SDK 方法"));
   return value as Method;
 }
 export const isRead = (method: Method) =>

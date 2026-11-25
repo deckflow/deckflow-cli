@@ -1,3 +1,4 @@
+import { t } from "../src/i18n.mjs";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -34,7 +35,7 @@ const temp = mkdtempSync(join(tmpdir(), "deckflow-release-"));
 try {
   runPnpm(["pack", "--pack-destination", temp]);
   const files = readdirSync(temp).filter((file) => file.endsWith(".tgz"));
-  if (files.length !== 1) throw Error("预期生成一个发布安装包");
+  if (files.length !== 1) throw Error(t("预期生成一个发布安装包"));
   const args = [
     "publish",
     join(temp, files[0]),

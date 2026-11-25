@@ -1,3 +1,4 @@
+import { t } from "./i18n.mjs";
 import { createHash, randomUUID } from "node:crypto";
 import { constants, createReadStream, createWriteStream } from "node:fs";
 import {
@@ -31,7 +32,7 @@ const failed = (status: string) =>
 export function taskFailure(status: string, code?: string | null) {
   return new CliError(
     "TASK_FAILED",
-    `任务状态：${status}`,
+    t("任务状态：{0}", [status]),
     status === "expired" ? 6 : 9,
     { serverCode: code, state: status },
   );
@@ -48,7 +49,8 @@ export async function folderPath(
     return (await api("folder.detail", { spaceId, folderId: value })).id;
   let parentId = start;
   for (const name of value.split("/").filter(Boolean)) {
-    if (name === "." || name === "..") throw usage("远端目录不能包含 . 或 ..");
+    if (name === "." || name === "..")
+      throw usage(t("远端目录不能包含 . 或 .."));
     const matches: string[] = [];
     for (let offset = 0; ;) {
       const list = await api("folder.list", {
@@ -68,11 +70,16 @@ export async function folderPath(
       if (!list.rows.length || offset >= list.count) break;
     }
     if (matches.length > 1)
-      throw new CliError("AMBIGUOUS_FOLDER", `远端目录重名：${name}`, 6);
+      throw new CliError("AMBIGUOUS_FOLDER", t("远端目录重名：{0}", [name]), 6);
     if (matches.length) parentId = matches[0];
     else if (create)
       parentId = (await api("folder.add", { spaceId, parentId, name })).id;
-    else throw new CliError("FOLDER_NOT_FOUND", `远端目录不存在：${name}`, 5);
+    else
+      throw new CliError(
+        "FOLDER_NOT_FOUND",
+        t("远端目录不存在：{0}", [name]),
+        5,
+      );
   }
   return parentId;
 }
@@ -109,7 +116,7 @@ type ConvertState = {
 type State = UploadState | ConvertState;
 function operationPath(ctx: Context, id: string) {
   if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(id))
-    throw usage("无效的本地操作 ID");
+    throw usage(t("无效的本地操作 ID"));
   return join(ctx.stateDir, "operations", id + ".json");
 }
 async function loadOperation<K extends State["kind"]>(
@@ -119,18 +126,18 @@ async function loadOperation<K extends State["kind"]>(
 ) {
   const state = await readJson<State>(operationPath(ctx, id));
   if (!state || state.kind !== kind)
-    throw new CliError("OPERATION_NOT_FOUND", "未找到对应的本地操作", 5);
+    throw new CliError("OPERATION_NOT_FOUND", t("未找到对应的本地操作"), 5);
   if (
     state.endpoint !== (await ctx.apiUrl()) ||
     state.spaceId !== (await ctx.space())
   )
-    throw usage("恢复操作需要使用原 API 地址和工作空间");
+    throw usage(t("恢复操作需要使用原 API 地址和工作空间"));
   if (
     state.kind === "upload" &&
     state.credentialScope &&
     state.credentialScope !== (await ctx.credentialScope())
   )
-    throw usage("恢复操作需要使用原上传凭据");
+    throw usage(t("恢复操作需要使用原上传凭据"));
   return state as Extract<State, { kind: K }>;
 }
 async function tracked<T>(
@@ -142,10 +149,10 @@ async function tracked<T>(
 ) {
   try {
     if (!ctx.opts.quiet && (ctx.interactive || ctx.opts.verbose))
-      process.stderr.write(`操作 ID：${id}\n`);
+      process.stderr.write(t("操作 ID：{0}\n", [id]));
     return await execute();
   } catch (e) {
-    const error = e instanceof Error ? e : Error("操作失败");
+    const error = e instanceof Error ? e : Error(t("操作失败"));
     throw Object.assign(error, {
       operation: {
         operationId: id,
@@ -156,7 +163,7 @@ async function tracked<T>(
         )
           ? {
               restart_required: true,
-              restart_hint: "重新发起上传，不要指定 --resume",
+              restart_hint: t("重新发起上传，不要指定 --resume"),
             }
           : { resume: `${resume} --resume ${id}` }),
         ...details(),
@@ -166,7 +173,7 @@ async function tracked<T>(
 }
 async function fingerprint(path: string) {
   const before = await lstat(path);
-  if (!before.isFile()) throw usage("上传源必须是常规文件");
+  if (!before.isFile()) throw usage(t("上传源必须是常规文件"));
   const hash = createHash("sha256");
   let bytes = 0;
   for await (const chunk of createReadStream(path)) {
@@ -180,7 +187,7 @@ async function fingerprint(path: string) {
     bytes !== before.size ||
     bytes !== after.size
   )
-    throw new CliError("SOURCE_CHANGED", "读取期间本地文件发生变化", 6);
+    throw new CliError("SOURCE_CHANGED", t("读取期间本地文件发生变化"), 6);
   return { bytes, sha256: hash.digest("hex") };
 }
 async function manifest(root: string): Promise<string[]> {
@@ -198,14 +205,22 @@ function storageUrl(raw: string) {
   try {
     url = new URL(raw);
   } catch {
-    throw new CliError("INVALID_STORAGE_URL", "服务端返回了无效的存储地址", 9);
+    throw new CliError(
+      "INVALID_STORAGE_URL",
+      t("服务端返回了无效的存储地址"),
+      9,
+    );
   }
   if (
     !["https:", "http:"].includes(url.protocol) ||
     url.username ||
     url.password
   )
-    throw new CliError("INVALID_STORAGE_URL", "服务端返回了无效的存储地址", 9);
+    throw new CliError(
+      "INVALID_STORAGE_URL",
+      t("服务端返回了无效的存储地址"),
+      9,
+    );
   return url;
 }
 async function put(
@@ -240,7 +255,7 @@ async function put(
     if (!response.ok)
       throw new CliError(
         "STORAGE_UPLOAD_FAILED",
-        `存储上传失败 (${response.status})`,
+        t("存储上传失败 ({0})", [response.status]),
         response.status >= 500 ? 8 : 9,
         { status: response.status },
       );
@@ -270,7 +285,7 @@ async function transfer(
   if (resume) {
     const current = await fingerprint(path);
     if (current.bytes !== bytes || current.sha256 !== sha256)
-      throw new CliError("SOURCE_CHANGED", "文件指纹与原操作不一致", 6);
+      throw new CliError("SOURCE_CHANGED", t("文件指纹与原操作不一致"), 6);
   }
   const name = state.name ?? basename(path);
   const committedResult = (session: {
@@ -281,7 +296,7 @@ async function transfer(
     if (!resultFileId || !session.committedRevisionId)
       throw new CliError(
         "INVALID_UPLOAD_RESULT",
-        "服务端缺少已提交的文件或版本 ID",
+        t("服务端缺少已提交的文件或版本 ID"),
         9,
       );
     return {
@@ -339,7 +354,7 @@ async function transfer(
           if (!signed[0])
             throw new CliError(
               "MISSING_UPLOAD_PART",
-              "服务端未返回分片地址",
+              t("服务端未返回分片地址"),
               9,
             );
           const offset = (number - 1) * partBytes;
@@ -352,14 +367,14 @@ async function transfer(
               Math.min(partBytes, bytes - offset),
             )) ?? undefined;
           if (!etag)
-            throw new CliError("MISSING_ETAG", "存储未返回分片 ETag", 9);
+            throw new CliError("MISSING_ETAG", t("存储未返回分片 ETag"), 9);
         }
         parts.push({ number, etag });
       }
     } else {
       if (!session.upload) session = await api("uploadSession.detail", query);
       if (!session.upload)
-        throw new CliError("UPLOAD_UNAVAILABLE", "服务端未返回上传地址", 9);
+        throw new CliError("UPLOAD_UNAVAILABLE", t("服务端未返回上传地址"), 9);
       await put(ctx, session.upload, path, 0, bytes);
     }
     session = await api("uploadSession.complete", { ...query, parts });
@@ -481,7 +496,11 @@ export async function replayUpload(
     (state.folderId ?? null) !== target.folderId ||
     (state.fileId && state.fileId !== target.targetId)
   )
-    throw new CliError("IDEMPOTENCY_CONFLICT", "幂等键已用于不同的上传请求", 6);
+    throw new CliError(
+      "IDEMPOTENCY_CONFLICT",
+      t("幂等键已用于不同的上传请求"),
+      6,
+    );
   return upload(ctx, undefined, { resume: id });
 }
 export async function upload(
@@ -501,12 +520,12 @@ export async function upload(
       opts.createFolders ||
       opts.ttlDays
     )
-      throw usage("--resume 不能与其他上传参数合用");
+      throw usage(t("--resume 不能与其他上传参数合用"));
     const state = await loadOperation(ctx, opts.resume, "upload");
     if (ctx.opts.dryRun) {
       const current = await fingerprint(state.path);
       if (current.bytes !== state.bytes || current.sha256 !== state.sha256)
-        throw new CliError("SOURCE_CHANGED", "恢复上传的本地文件已变化", 6);
+        throw new CliError("SOURCE_CHANGED", t("恢复上传的本地文件已变化"), 6);
       return {
         dryRun: true,
         operationId: opts.resume,
@@ -523,17 +542,18 @@ export async function upload(
       () => ({ spaceId, uploadSessionId: state.sessionId }),
     );
   }
-  if (!local) throw usage("请指定本地文件或 --resume");
+  if (!local) throw usage(t("请指定本地文件或 --resume"));
   const root = ctx.path(local);
   const entry = await lstat(root);
   const directory = entry.isDirectory();
-  if (!entry.isFile() && !directory) throw usage("上传源必须是常规文件或目录");
+  if (!entry.isFile() && !directory)
+    throw usage(t("上传源必须是常规文件或目录"));
   if (directory && (!opts.recursive || fileId))
-    throw usage("put 仅支持常规文件，不支持上传目录");
+    throw usage(t("put 仅支持常规文件，不支持上传目录"));
   if (!directory && opts.createFolders)
-    throw usage("--create-folders 仅用于递归上传");
+    throw usage(t("--create-folders 仅用于递归上传"));
   const paths = directory ? await manifest(root) : [root];
-  if (!paths.length) throw usage("没有可上传的常规文件");
+  if (!paths.length) throw usage(t("没有可上传的常规文件"));
   const ttlSeconds =
     opts.ttlDays !== undefined ? Number(opts.ttlDays) * 86400 : undefined;
   if (
@@ -542,7 +562,7 @@ export async function upload(
       !Number.isSafeInteger(ttlSeconds) ||
       ttlSeconds < 10800)
   )
-    throw usage("--ttl-days 必须换算为至少 10800 个整秒");
+    throw usage(t("--ttl-days 必须换算为至少 10800 个整秒"));
   const planFolders =
     directory && opts.createFolders && opts.folder?.startsWith("/");
   const folderId =
@@ -597,21 +617,21 @@ export async function upload(
     if (!regions.rows.length || offset >= regions.count)
       throw new CliError(
         "REGION_CAPABILITIES_UNAVAILABLE",
-        "无法确定工作空间地区的上传限制",
+        t("无法确定工作空间地区的上传限制"),
         9,
       );
   }
   const maxParts = Number(caps?.maxParts ?? 10000);
   if (!Number.isSafeInteger(maxParts) || maxParts < 1)
-    throw new CliError("INVALID_UPLOAD_LIMIT", "区域分片配置无效", 9);
+    throw new CliError("INVALID_UPLOAD_LIMIT", t("区域分片配置无效"), 9);
   for (const path of paths) {
     const info = await lstat(path);
-    if (!info.isFile()) throw usage("上传源必须是常规文件");
+    if (!info.isFile()) throw usage(t("上传源必须是常规文件"));
     if (info.size > Number(caps?.maxUploadBytes ?? Infinity))
-      throw usage("文件超过区域上传上限");
+      throw usage(t("文件超过区域上传上限"));
   }
   if (directory || ctx.opts.dryRun) {
-    const preview = await ctx.confirm("上传", impact, true);
+    const preview = await ctx.confirm(t("上传"), impact, true);
     if (preview) return preview;
   }
   const results = [];
@@ -638,7 +658,7 @@ export async function upload(
         );
       const content = await fingerprint(path);
       if (content.bytes > Number(caps?.maxUploadBytes ?? Infinity))
-        throw usage("文件超过区域上传上限");
+        throw usage(t("文件超过区域上传上限"));
       const state: UploadState = {
         kind: "upload",
         credentialScope: await ctx.credentialScope(),
@@ -678,7 +698,7 @@ export async function upload(
         if (previous && fields.some((key) => previous[key] !== state[key]))
           throw new CliError(
             "IDEMPOTENCY_CONFLICT",
-            "幂等键已用于不同的上传请求，原续传记录已保留",
+            t("幂等键已用于不同的上传请求，原续传记录已保留"),
             6,
             { operationId: id },
           );
@@ -735,20 +755,20 @@ export async function download(
   if (exists && (!opts.overwrite || !exists.isFile()))
     throw new CliError(
       "OUTPUT_EXISTS",
-      "目标已存在，请选择其他路径或指定 --force",
+      t("目标已存在，请选择其他路径或指定 --force"),
       6,
     );
   if (!(await lstat(dirname(target))).isDirectory())
-    throw usage("下载目标的父路径不是目录");
+    throw usage(t("下载目标的父路径不是目录"));
   if (ctx.opts.dryRun)
     return ctx.confirm(
-      "下载",
+      t("下载"),
       { spaceId, fileId, revisionId: opts.revision, path: target },
       true,
     );
   const revisionId = opts.revision ?? file.currentRevisionId;
   if (!revisionId)
-    throw new CliError("CONTENT_NOT_AVAILABLE", "文件尚无可下载版本", 6);
+    throw new CliError("CONTENT_NOT_AVAILABLE", t("文件尚无可下载版本"), 6);
   const content = await api("revision.content", {
     spaceId,
     fileId,
@@ -764,13 +784,13 @@ export async function download(
   if (grant.revisionId !== revisionId || !grant.url)
     throw new CliError(
       "INVALID_DOWNLOAD_RESPONSE",
-      "下载授权未返回对应版本的原始内容地址",
+      t("下载授权未返回对应版本的原始内容地址"),
       9,
     );
   const timeout = AbortSignal.timeout(ctx.requestMs);
   const cancellation = new AbortController();
   const cancel = () =>
-    cancellation.abort(new CliError("CANCELLED", "下载已取消", 2));
+    cancellation.abort(new CliError("CANCELLED", t("下载已取消"), 2));
   const signal = AbortSignal.any([timeout, cancellation.signal]);
   process.on("SIGINT", cancel);
   try {
@@ -781,7 +801,7 @@ export async function download(
       await response.body?.cancel();
       throw new CliError(
         "STORAGE_DOWNLOAD_FAILED",
-        `存储下载失败 (${response.status})`,
+        t("存储下载失败 ({0})", [response.status]),
         response.status === 402
           ? 7
           : response.status === 403
@@ -813,7 +833,7 @@ export async function download(
       if (bytes !== content.bytes || hash.digest("hex") !== content.sha256)
         throw new CliError(
           "DOWNLOAD_INTEGRITY_FAILED",
-          "下载内容与服务端校验值不一致",
+          t("下载内容与服务端校验值不一致"),
           9,
         );
       if (opts.overwrite) await rename(temp, target);
@@ -863,14 +883,15 @@ export async function convert(
   let state: ConvertState;
   if (opts.resume) {
     if (fileId || opts.to || opts.folder || opts.revision || opts.name)
-      throw usage("--resume 不能与其他转换参数合用");
+      throw usage(t("--resume 不能与其他转换参数合用"));
     state = await loadOperation(ctx, id, "convert");
   } else {
-    if (!fileId || opts.to !== "pdf") throw usage("请指定文件 ID 和 --to pdf");
+    if (!fileId || opts.to !== "pdf")
+      throw usage(t("请指定文件 ID 和 --to pdf"));
     const file = await api("file.detail", { spaceId, fileId });
     const revisionId = opts.revision ?? file.currentRevisionId;
     if (!revisionId)
-      throw new CliError("REVISION_NOT_FOUND", "文件没有当前版本", 5);
+      throw new CliError("REVISION_NOT_FOUND", t("文件没有当前版本"), 5);
     await api("revision.detail", { spaceId, fileId, revisionId });
     const folderId = opts.folder
       ? await folderPath(api, spaceId, opts.folder)
@@ -878,7 +899,7 @@ export async function convert(
     const name = opts.name ?? file.name.replace(/\.[^.]+$/, "") + ".pdf";
     state = {
       kind: "convert",
-      endpoint: endpoint(await ctx.apiUrl(), "API 地址"),
+      endpoint: endpoint(await ctx.apiUrl(), t("API 地址")),
       spaceId,
       fileId,
       revisionId,
@@ -887,7 +908,7 @@ export async function convert(
     };
   }
   const preview = await ctx.confirm(
-    "转换并创建独立文件",
+    t("转换并创建独立文件"),
     {
       spaceId,
       fileId: state.fileId,
@@ -940,7 +961,7 @@ export async function convert(
         if (outputs.length !== 1)
           throw new CliError(
             "PDF_OUTPUT_UNAVAILABLE",
-            "转换任务没有唯一 PDF 产物",
+            t("转换任务没有唯一 PDF 产物"),
             9,
           );
         state.output = {

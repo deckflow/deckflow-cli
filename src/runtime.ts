@@ -1,3 +1,4 @@
+import { t } from "./i18n.mjs";
 import { Command } from "commander";
 import { constants as bufferConstants } from "node:buffer";
 import lockfile from "proper-lockfile";
@@ -38,7 +39,7 @@ const fail = (code: string, message: string, exit = 2): never => {
 };
 function remote(value: string) {
   if (value.startsWith("id:")) {
-    if (!/^[A-Za-z0-9_]+$/.test(value.slice(3))) throw usage("无效对象 ID");
+    if (!/^[A-Za-z0-9_]+$/.test(value.slice(3))) throw usage(t("无效对象 ID"));
     return value;
   }
   if (
@@ -47,7 +48,7 @@ function remote(value: string) {
     value.split("/").some((x) => x === "." || x === "..") ||
     value.includes("//")
   )
-    throw usage("远端对象需要绝对路径或 id:<id>");
+    throw usage(t("远端对象需要绝对路径或 id:<id>"));
   return value.length > 1 ? value.replace(/\/$/, "") : value;
 }
 function formatCategory(format: unknown) {
@@ -141,7 +142,7 @@ async function canonical(
   const seen = new Set<string>();
   let pathAvailable = true;
   while (parent) {
-    if (seen.has(parent)) throw usage("目录层级循环");
+    if (seen.has(parent)) throw usage(t("目录层级循环"));
     seen.add(parent);
     try {
       const p = await api("folder.detail", { spaceId: ws, folderId: parent });
@@ -214,7 +215,7 @@ async function resolveObject(
     if (hits.length !== 1)
       return fail(
         hits.length ? "TYPE_MISMATCH" : "OBJECT_NOT_FOUND",
-        "对象不存在或 ID 有歧义",
+        t("对象不存在或 ID 有歧义"),
         5,
       );
     return hits[0];
@@ -230,14 +231,14 @@ async function resolveObject(
     if (hits.length !== 1)
       return fail(
         hits.length ? "TYPE_MISMATCH" : "OBJECT_NOT_FOUND",
-        "路径不存在或存在歧义",
+        t("路径不存在或存在歧义"),
         5,
       );
     current = hits[0];
     path += "/" + current.name;
     current.path = path;
     if (i < parts.length - 1 && current.kind !== "directory")
-      return fail("NOT_A_DIRECTORY", "路径经过文件");
+      return fail("NOT_A_DIRECTORY", t("路径经过文件"));
     parent = current.id;
   }
   return current!;
@@ -252,19 +253,20 @@ async function maybe(ctx: Context, path: string) {
 }
 async function directory(ctx: Context, path: string) {
   const row = await resolveObject(ctx, path, "directory");
-  if (row.kind !== "directory") return fail("NOT_A_DIRECTORY", "目标不是目录");
+  if (row.kind !== "directory")
+    return fail("NOT_A_DIRECTORY", t("目标不是目录"));
   return row;
 }
 async function file(ctx: Context, path: string) {
   const row = await resolveObject(ctx, path, "file");
-  if (row.kind !== "file") return fail("TYPE_MISMATCH", "需要文件");
+  if (row.kind !== "file") return fail("TYPE_MISMATCH", t("需要文件"));
   return row;
 }
 async function destination(ctx: Context, path: string, name: string) {
   remote(path);
   let target = await maybe(ctx, path);
   if (!target && path.endsWith("/"))
-    fail("OBJECT_NOT_FOUND", "目标目录不存在", 5);
+    fail("OBJECT_NOT_FOUND", t("目标目录不存在"), 5);
   if (target?.kind === "file" && path.startsWith("id:")) path = target.path;
   if (target?.kind === "directory") {
     path = target.path.replace(/\/$/, "") + "/" + name;
@@ -280,12 +282,12 @@ async function destination(ctx: Context, path: string, name: string) {
 }
 function guard(row: ObjectRow, o: Options) {
   if (o.ifVersion !== undefined && o.ifVersion !== row.version)
-    fail("VERSION_CONFLICT", "对象版本已变化", 6);
+    fail("VERSION_CONFLICT", t("对象版本已变化"), 6);
 }
 function paginate(c: Command) {
   return c
-    .option("--limit <n>", "每页条数", "50")
-    .option("--cursor <token>", "继续游标");
+    .option("--limit <n>", t("每页条数"), "50")
+    .option("--cursor <token>", t("继续游标"));
 }
 function pagination(o: Options, key: string) {
   const limit = integer(o.limit ?? "50", 1, 100);
@@ -296,7 +298,7 @@ function pagination(o: Options, key: string) {
       if (c.key !== key) throw Error();
       offset = integer(String(c.offset), 0);
     } catch {
-      throw usage("无效或范围不符的 cursor");
+      throw usage(t("无效或范围不符的 cursor"));
     }
   }
   return { limit, offset };
@@ -377,7 +379,7 @@ function jobData(id: string) {
       throw Error();
     return p;
   } catch {
-    throw usage("无效任务句柄");
+    throw usage(t("无效任务句柄"));
   }
 }
 export function commands(root: Command, register: Register) {
@@ -404,15 +406,15 @@ export function commands(root: Command, register: Register) {
     if (options) c = options(c);
     register(c, async (ctx, args, o) => {
       if (o.role && !["manager", "teammate"].includes(o.role))
-        throw usage("角色必须是 manager 或 teammate");
+        throw usage(t("角色必须是 manager 或 teammate"));
       if (o.set && !["manager", "teammate"].includes(o.set))
-        throw usage("角色必须是 manager 或 teammate");
+        throw usage(t("角色必须是 manager 或 teammate"));
       if (o.mode && !["lexical", "hybrid"].includes(o.mode))
-        throw usage("搜索模式必须是 lexical 或 hybrid");
+        throw usage(t("搜索模式必须是 lexical 或 hybrid"));
       if (o.ifVersion !== undefined && !o.ifVersion)
-        throw usage("--if-version 不能为空");
+        throw usage(t("--if-version 不能为空"));
       if (o.idempotencyKey !== undefined && !o.idempotencyKey)
-        throw usage("--idempotency-key 不能为空");
+        throw usage(t("--idempotency-key 不能为空"));
       return run(ctx, args, o);
     });
   };
@@ -420,9 +422,9 @@ export function commands(root: Command, register: Register) {
     add(
       p,
       s,
-      "当前后端未提供此能力",
+      t("当前后端未提供此能力"),
       async () => {
-        throw new CliError("NOT_IMPLEMENTED", "当前后端未提供此能力", 2);
+        throw new CliError("NOT_IMPLEMENTED", t("当前后端未提供此能力"), 2);
       },
       opts,
     );
@@ -431,7 +433,7 @@ export function commands(root: Command, register: Register) {
   add(
     root,
     "ls [directory]",
-    "列出文件与目录",
+    t("列出文件与目录"),
     async (ctx, [path = "/"], o) => {
       const scope = await directory(ctx, path);
       return listing(
@@ -457,7 +459,7 @@ export function commands(root: Command, register: Register) {
     },
     (c) => paginate(c).option("--recursive"),
   );
-  add(root, "info <object>", "读取对象信息", async (ctx, [path]) => {
+  add(root, "info <object>", t("读取对象信息"), async (ctx, [path]) => {
     const row = await resolveObject(ctx, path);
     if (row.kind === "directory") return row;
     const api = await ctx.client();
@@ -475,7 +477,7 @@ export function commands(root: Command, register: Register) {
     if (!content) return { ...row, content_status: "unavailable" };
     return { ...row, mime_type: content.mediaType, size_bytes: content.bytes };
   });
-  add(root, "cat <file>", "读取已有 UTF-8 文本", async (ctx, [path]) => {
+  add(root, "cat <file>", t("读取已有 UTF-8 文本"), async (ctx, [path]) => {
     const row = await file(ctx, path),
       api = await ctx.client();
     const c = await api("file.content", {
@@ -491,13 +493,13 @@ export function commands(root: Command, register: Register) {
         mime_type: c.mediaType,
       };
     if (!/^(text\/|application\/(json|xml))/.test(c.mediaType))
-      fail("TEXT_NOT_AVAILABLE", "没有可读文本表示");
+      fail("TEXT_NOT_AVAILABLE", t("没有可读文本表示"));
     const res = await ctx.fetch(c.url, {
       signal: AbortSignal.timeout(ctx.requestMs),
     });
     if (!res.ok) {
       await res.body?.cancel();
-      throw Object.assign(new Error("文本读取失败"), { status: res.status });
+      throw Object.assign(new Error(t("文本读取失败")), { status: res.status });
     }
     const bytes = new Uint8Array(await res.arrayBuffer());
     if (
@@ -505,7 +507,7 @@ export function commands(root: Command, register: Register) {
       (c.sha256 &&
         createHash("sha256").update(bytes).digest("hex") !== c.sha256)
     )
-      fail("DOWNLOAD_INTEGRITY_FAILED", "下载内容与服务端校验值不一致", 9);
+      fail("DOWNLOAD_INTEGRITY_FAILED", t("下载内容与服务端校验值不一致"), 9);
     const chunks: string[] = [];
     try {
       const decoder = new TextDecoder("utf-8", {
@@ -520,7 +522,7 @@ export function commands(root: Command, register: Register) {
         );
       chunks.push(decoder.decode());
     } catch {
-      return fail("TEXT_NOT_AVAILABLE", "内容不是 UTF-8 文本");
+      return fail("TEXT_NOT_AVAILABLE", t("内容不是 UTF-8 文本"));
     }
     const metadata = {
       file_id: row.id,
@@ -534,7 +536,7 @@ export function commands(root: Command, register: Register) {
     )
       fail(
         "TEXT_SIZE_LIMIT",
-        "文本超过单个 JSON 字符串的运行时大小限制；请使用普通文本输出或 get",
+        t("文本超过单个 JSON 字符串的运行时大小限制；请使用普通文本输出或 get"),
         2,
       );
     return { ...metadata, text: chunks.join("") };
@@ -542,10 +544,10 @@ export function commands(root: Command, register: Register) {
   add(
     root,
     "mkdir <directory>",
-    "创建目录",
+    t("创建目录"),
     async (ctx, [path], o) => {
       path = remote(path).normalize("NFC");
-      if (path.startsWith("id:")) throw usage("创建需要绝对路径");
+      if (path.startsWith("id:")) throw usage(t("创建需要绝对路径"));
       let parentId: string | null = null;
       let current = "",
         missing = false;
@@ -561,7 +563,7 @@ export function commands(root: Command, register: Register) {
             part.includes("\x7f"),
         )
       )
-        throw usage("目录名须为 1–255 个有效字符");
+        throw usage(t("目录名须为 1–255 个有效字符"));
       for (let i = 0; i < parts.length; i++) {
         current += "/" + parts[i];
         const hits: ObjectRow[] = missing
@@ -569,15 +571,16 @@ export function commands(root: Command, register: Register) {
           : (await all(api, ws, parentId)).filter(
               (row) => row.name === parts[i],
             );
-        if (hits.length > 1) fail("TYPE_MISMATCH", "路径存在歧义", 6);
+        if (hits.length > 1) fail("TYPE_MISMATCH", t("路径存在歧义"), 6);
         let row: ObjectRow | undefined = hits[0];
         if (row) {
-          if (row.kind !== "directory") fail("NOT_A_DIRECTORY", "父级不是目录");
+          if (row.kind !== "directory")
+            fail("NOT_A_DIRECTORY", t("父级不是目录"));
           if (i === parts.length - 1 && !o.parents)
-            fail("OBJECT_EXISTS", "目标存在", 6);
+            fail("OBJECT_EXISTS", t("目标存在"), 6);
         } else {
           if (i < parts.length - 1 && !o.parents)
-            fail("OBJECT_NOT_FOUND", "父目录不存在", 5);
+            fail("OBJECT_NOT_FOUND", t("父目录不存在"), 5);
           if (ctx.opts.dryRun) {
             missing = true;
             continue;
@@ -623,7 +626,7 @@ export function commands(root: Command, register: Register) {
   add(
     root,
     "get <source> <local-path>",
-    "下载原始字节",
+    t("下载原始字节"),
     async (ctx, [source, path], o) =>
       download(ctx, (await file(ctx, source)).id, {
         output: path,
@@ -634,7 +637,9 @@ export function commands(root: Command, register: Register) {
   const put: Run = async (ctx, [local, path], o) => {
     if (o.resume) {
       if (o.ifVersion !== undefined || o.idempotencyKey !== undefined)
-        throw usage("--resume 不能与 --if-version 或 --idempotency-key 合用");
+        throw usage(
+          t("--resume 不能与 --if-version 或 --idempotency-key 合用"),
+        );
       return upload(ctx, undefined, { resume: o.resume });
     }
     const d = await destination(ctx, path, basename(local));
@@ -648,11 +653,11 @@ export function commands(root: Command, register: Register) {
       if (recovered !== undefined) return recovered;
     }
     if (o.ifVersion !== undefined && !d.target)
-      fail("VERSION_CONFLICT", "指定版本的目标已不存在", 6);
-    if (d.target && !o.force) fail("OBJECT_EXISTS", "目标存在", 6);
+      fail("VERSION_CONFLICT", t("指定版本的目标已不存在"), 6);
+    if (d.target && !o.force) fail("OBJECT_EXISTS", t("目标存在"), 6);
     if (d.target) {
       guard(d.target, o);
-      if (d.target.kind !== "file") throw unsupported("目录覆盖");
+      if (d.target.kind !== "file") throw unsupported(t("目录覆盖"));
     }
     return upload(
       ctx,
@@ -669,19 +674,19 @@ export function commands(root: Command, register: Register) {
       d.target?.id,
     );
   };
-  add(root, "put <local-file> <destination>", "上传原始字节", put, (c) =>
+  add(root, "put <local-file> <destination>", t("上传原始字节"), put, (c) =>
     mutate(c).option("--force").option("--resume <id>"),
   );
   add(
     root,
     "new <file-path>",
-    "创建受管文件",
+    t("创建受管文件"),
     async (ctx, [path], o) => {
       if (o.content !== undefined && o.fromStdin)
-        throw usage("--content 与 --from-stdin 互斥");
+        throw usage(t("--content 与 --from-stdin 互斥"));
       remote(path);
       if ((await maybe(ctx, path))?.kind === "directory")
-        fail("TYPE_MISMATCH", "文件路径指向已有目录");
+        fail("TYPE_MISMATCH", t("文件路径指向已有目录"));
       const dir = await mkdtemp(join(tmpdir(), "deckflow-new-"));
       let keepSource = false;
       try {
@@ -693,7 +698,7 @@ export function commands(root: Command, register: Register) {
           ? Buffer.concat(chunks)
           : Buffer.from(o.content ?? "");
         if (o.type !== undefined)
-          throw unsupported("创建时显式指定 MIME 类型；当前由服务端探测");
+          throw unsupported(t("创建时显式指定 MIME 类型；当前由服务端探测"));
         await writeFile(local, data, { mode: 0o600 });
         return await put(ctx, [local, path], o);
       } catch (error) {
@@ -718,26 +723,26 @@ export function commands(root: Command, register: Register) {
   add(
     root,
     "mv <source> <destination>",
-    "移动或重命名",
+    t("移动或重命名"),
     async (ctx, [source, path], o) => {
       if (o.idempotencyKey !== undefined)
-        throw unsupported("移动的调用方幂等键");
+        throw unsupported(t("移动的调用方幂等键"));
       const row = await resolveObject(ctx, source);
-      if (row.id === "root") throw usage("不能移动根目录");
+      if (row.id === "root") throw usage(t("不能移动根目录"));
       guard(row, o);
       const d = await destination(ctx, path, row.name);
       if (d.target)
         fail(
           o.force ? "UNSUPPORTED_OPERATION" : "OBJECT_EXISTS",
-          "目标已存在",
+          t("目标已存在"),
           o.force ? 2 : 6,
         );
       if (row.kind === "directory" && d.path.startsWith(row.path + "/"))
-        throw usage("不能移动到自身后代");
+        throw usage(t("不能移动到自身后代"));
       const parent = row.kind === "file" ? row.folderId : row.parentId;
       const renamed = d.name !== row.name,
         moved = (parent ?? null) !== d.parentId;
-      if (renamed && moved) throw unsupported("同时移动和改名");
+      if (renamed && moved) throw unsupported(t("同时移动和改名"));
       if (ctx.opts.dryRun)
         return { dry_run: true, source: row.path, destination: d.path };
       const api = await ctx.client(),
@@ -787,7 +792,7 @@ export function commands(root: Command, register: Register) {
   add(
     root,
     "cp <source> <destination>",
-    "复制文件与目录",
+    t("复制文件与目录"),
     async (ctx, [source, path], o) => {
       const row = await resolveObject(ctx, source);
       guard(row, o);
@@ -795,18 +800,18 @@ export function commands(root: Command, register: Register) {
       if (d.target && !(row.kind === "file" && o.idempotencyKey))
         fail(
           o.force ? "UNSUPPORTED_OPERATION" : "OBJECT_EXISTS",
-          "目标存在",
+          t("目标存在"),
           o.force ? 2 : 6,
         );
       if (row.kind === "directory" && !o.recursive)
-        throw usage("复制目录需要 --recursive");
+        throw usage(t("复制目录需要 --recursive"));
       if (
         row.kind === "directory" &&
         (row.path === "/" ||
           d.path === row.path ||
           d.path.startsWith(row.path + "/"))
       )
-        throw usage("不能复制到自身或后代");
+        throw usage(t("不能复制到自身或后代"));
       const entries =
         row.kind === "directory" ? await tree(ctx, row, true) : [];
       if (ctx.opts.dryRun)
@@ -851,7 +856,7 @@ export function commands(root: Command, register: Register) {
       for (const entry of entries)
         try {
           const parent = parents.get(dirname(entry.path));
-          if (!parent) throw usage("父目录复制失败");
+          if (!parent) throw usage(t("父目录复制失败"));
           const created =
             entry.kind === "directory"
               ? await api("folder.add", {
@@ -895,7 +900,7 @@ export function commands(root: Command, register: Register) {
             path: d.path + entry.path.slice(row.path.length),
             error: cause,
           });
-          throw new CliError("PARTIAL_FAILURE", "目录复制部分成功", 9, {
+          throw new CliError("PARTIAL_FAILURE", t("目录复制部分成功"), 9, {
             results,
             cause: cause.code,
             cause_status: cause.status,
@@ -909,13 +914,13 @@ export function commands(root: Command, register: Register) {
   add(
     root,
     "rm <target>",
-    "永久删除或报告软删除缺失",
+    t("永久删除或报告软删除缺失"),
     async (ctx, [path], o) => {
       remote(path);
       if (o.idempotencyKey !== undefined)
-        throw unsupported("永久删除的调用方幂等键");
-      if (path === "/") throw usage("禁止删除根目录");
-      if (!o.permanent) throw unsupported("回收站软删除");
+        throw unsupported(t("永久删除的调用方幂等键"));
+      if (path === "/") throw usage(t("禁止删除根目录"));
+      if (!o.permanent) throw unsupported(t("回收站软删除"));
       const statePath = async (id: string) =>
         join(
           ctx.stateDir,
@@ -943,9 +948,9 @@ export function commands(root: Command, register: Register) {
           typeof cached.row.rowVersion !== "number" ||
           cached.recursive !== Boolean(o.recursive))
       )
-        throw usage("删除重放必须使用原对象及递归参数");
+        throw usage(t("删除重放必须使用原对象及递归参数"));
       const row = cached?.row ?? (await resolveObject(ctx, path));
-      if (row.id === "root") throw usage("禁止删除根目录");
+      if (row.id === "root") throw usage(t("禁止删除根目录"));
       guard(row, o);
       const api = await ctx.client(),
         spaceId = await ctx.space();
@@ -955,8 +960,8 @@ export function commands(root: Command, register: Register) {
         !o.recursive &&
         (await all(api, spaceId, row.id)).length
       )
-        fail("DIRECTORY_NOT_EMPTY", "目录非空，需要 --recursive", 6);
-      const preview = await ctx.confirm("永久删除", {
+        fail("DIRECTORY_NOT_EMPTY", t("目录非空，需要 --recursive"), 6);
+      const preview = await ctx.confirm(t("永久删除"), {
         id: row.id,
         path: row.path,
       });
@@ -989,12 +994,12 @@ export function commands(root: Command, register: Register) {
   add(
     root,
     "view <file>",
-    "读取已有视觉预览",
+    t("读取已有视觉预览"),
     async (ctx, [path], o) => {
-      if (o.page && o.pages) throw usage("--page 与 --pages 互斥");
+      if (o.page && o.pages) throw usage(t("--page 与 --pages 互斥"));
       integer(o.limit ?? "50", 1, 100);
       if (o.url && (o.page !== undefined || o.pages !== undefined))
-        throw usage("--url 不支持页面选择");
+        throw usage(t("--url 不支持页面选择"));
       const row = await file(ctx, path);
       if (o.url)
         return {
@@ -1006,7 +1011,7 @@ export function commands(root: Command, register: Register) {
       const api = await ctx.client(),
         spaceId = await ctx.space();
       if (!row.currentRevisionId)
-        fail("PREVIEW_NOT_AVAILABLE", "没有当前版本预览");
+        fail("PREVIEW_NOT_AVAILABLE", t("没有当前版本预览"));
       const representation = await api("file.content", {
         spaceId,
         fileId: row.id,
@@ -1015,10 +1020,10 @@ export function commands(root: Command, register: Register) {
         typeof representation.mediaType === "string" &&
         representation.mediaType.startsWith("image/")
       ) {
-        if (o.page || o.pages) throw usage("单图不支持页面选择");
-        if (o.cursor !== undefined) throw usage("单图不支持游标分页");
+        if (o.page || o.pages) throw usage(t("单图不支持页面选择"));
+        if (o.cursor !== undefined) throw usage(t("单图不支持游标分页"));
         if (representation.revisionId !== row.currentRevisionId)
-          fail("PREVIEW_OUTDATED", "视觉资源版本已变化");
+          fail("PREVIEW_OUTDATED", t("视觉资源版本已变化"));
         return {
           file_id: row.id,
           path: row.path,
@@ -1051,7 +1056,7 @@ export function commands(root: Command, register: Register) {
           t.status === "succeeded" &&
           t.outputs.length > 0,
       );
-      if (!task) fail("PREVIEW_NOT_AVAILABLE", "没有当前版本预览");
+      if (!task) fail("PREVIEW_NOT_AVAILABLE", t("没有当前版本预览"));
       const complete = await screenshotOutputs(
         api,
         {
@@ -1062,7 +1067,8 @@ export function commands(root: Command, register: Register) {
         },
         task!.outputs,
       );
-      if (!complete.length) fail("PREVIEW_NOT_AVAILABLE", "没有可用预览产物");
+      if (!complete.length)
+        fail("PREVIEW_NOT_AVAILABLE", t("没有可用预览产物"));
       const pages = complete.map((x) => ({
         page: x.ordinal + 1,
         artifact_id: x.artifactId,
@@ -1085,17 +1091,17 @@ export function commands(root: Command, register: Register) {
         selected = pages.filter((x) => x.page === n);
       }
       if (o.pages) {
-        if (!/^\d+-\d+$/.test(o.pages)) throw usage("页范围需要 N-M");
+        if (!/^\d+-\d+$/.test(o.pages)) throw usage(t("页范围需要 N-M"));
         const [a, b] = o.pages.split("-").map((x) => integer(x, 1));
-        if (a > b) throw usage("无效页范围");
+        if (a > b) throw usage(t("无效页范围"));
         selected = pages.filter((x) => x.page >= a && x.page <= b);
       }
-      if (!selected.length) throw usage("页码超出范围");
+      if (!selected.length) throw usage(t("页码超出范围"));
       if (
         (await file(ctx, "id:" + row.id)).currentRevisionId !==
         row.currentRevisionId
       )
-        fail("PREVIEW_OUTDATED", "预览版本已变化");
+        fail("PREVIEW_OUTDATED", t("预览版本已变化"));
       return {
         file_id: row.id,
         path: row.path,
@@ -1139,7 +1145,7 @@ export function commands(root: Command, register: Register) {
   add(
     root,
     "find [scope]",
-    "元数据查询",
+    t("元数据查询"),
     async (ctx, [path = "/"], o) => {
       const scope = await resolveObject(ctx, path);
       if (
@@ -1149,7 +1155,9 @@ export function commands(root: Command, register: Register) {
         ) &&
         !/^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/i.test(o.type)
       )
-        throw usage("--type 需要 document、image、audio、video 或 MIME 类型");
+        throw usage(
+          t("--type 需要 document、image、audio、video 或 MIME 类型"),
+        );
       let rows = scope.kind === "file" ? [scope] : await tree(ctx, scope, true);
       if (o.name) {
         const regex = new RegExp(
@@ -1218,7 +1226,7 @@ export function commands(root: Command, register: Register) {
               new Date(Date.parse(date[1])).toISOString().slice(0, 10) !==
                 date[1])
           )
-            throw usage("无效日期");
+            throw usage(t("无效日期"));
           rows = rows.filter((x) =>
             key === "before"
               ? Date.parse(String(x.createdAt)) < time
@@ -1247,7 +1255,7 @@ export function commands(root: Command, register: Register) {
         .option("--name <glob>")
         .option(
           "--type <type>",
-          "document、image、audio、video 或完整 MIME 类型",
+          t("document、image、audio、video 或完整 MIME 类型"),
         )
         .option("--after <date>")
         .option("--before <date>"),
@@ -1264,11 +1272,11 @@ export function commands(root: Command, register: Register) {
     add(
       root,
       `${name} <query> [scope]`,
-      "查询已建立的内容索引",
+      t("查询已建立的内容索引"),
       async (ctx, [query, path = "/"], o) => {
-        if (o.session) throw unsupported("问答会话");
+        if (o.session) throw unsupported(t("问答会话"));
         if (name === "seek" && o.ignoreCase)
-          throw unsupported("语义搜索大小写控制");
+          throw unsupported(t("语义搜索大小写控制"));
         const api = await ctx.client(),
           spaceId = await ctx.space(),
           scope = await scopeOf(ctx, path);
@@ -1289,11 +1297,13 @@ export function commands(root: Command, register: Register) {
             idempotencyKey,
           }).catch((error) => {
             throw Object.assign(
-              error instanceof Error ? error : new Error("问答请求失败"),
+              error instanceof Error ? error : new Error(t("问答请求失败")),
               {
                 operation: {
                   idempotency_key: idempotencyKey,
-                  retry_hint: "使用相同查询、范围和此 --idempotency-key 重试",
+                  retry_hint: t(
+                    "使用相同查询、范围和此 --idempotency-key 重试",
+                  ),
                 },
               },
             );
@@ -1387,13 +1397,13 @@ export function commands(root: Command, register: Register) {
     );
   }
   stub(root, "search <query> [scope]", (c) =>
-    paginate(c).option("--mode <mode>", "lexical 或 hybrid", "lexical"),
+    paginate(c).option("--mode <mode>", t("lexical 或 hybrid"), "lexical"),
   );
-  const ws = root.command("ws").description("工作空间");
+  const ws = root.command("ws").description(t("工作空间"));
   add(
     ws,
     "ls",
-    "列出空间",
+    t("列出空间"),
     async (ctx, _, o) => {
       const raw = await (await ctx.client())("my.spaces", {});
       const items = Array.isArray(raw)
@@ -1415,7 +1425,7 @@ export function commands(root: Command, register: Register) {
     add(
       ws,
       action === "use" ? "use <workspace>" : `${action} [workspace]`,
-      "读取或管理工作空间",
+      t("读取或管理工作空间"),
       async (ctx, [selector], o) => {
         const id = selector ?? (await ctx.space()),
           api = await ctx.client();
@@ -1441,8 +1451,8 @@ export function commands(root: Command, register: Register) {
           return listing(items, o, JSON.stringify([id, "members"]));
         }
         if (action === "edit") {
-          if (o.description !== undefined) throw unsupported("空间描述编辑");
-          if (!o.name) throw usage("需要 --name");
+          if (o.description !== undefined) throw unsupported(t("空间描述编辑"));
+          if (!o.name) throw usage(t("需要 --name"));
           return ctx.opts.dryRun
             ? { dry_run: true }
             : api("space.rename", { id, name: o.name });
@@ -1484,7 +1494,7 @@ export function commands(root: Command, register: Register) {
   add(
     ws,
     "invite <email>",
-    "邀请成员",
+    t("邀请成员"),
     async (ctx, [email], o) =>
       ctx.opts.dryRun
         ? { dry_run: true, email }
@@ -1499,9 +1509,9 @@ export function commands(root: Command, register: Register) {
     add(
       ws,
       `${action} <member-id-or-email>`,
-      "管理成员",
+      t("管理成员"),
       async (ctx, [userId], o) => {
-        if (userId.includes("@")) throw unsupported("按邮箱解析成员");
+        if (userId.includes("@")) throw unsupported(t("按邮箱解析成员"));
         const api = await ctx.client(),
           spaceId = await ctx.space();
         if (ctx.opts.dryRun) return { dry_run: true, userId };
@@ -1519,11 +1529,11 @@ export function commands(root: Command, register: Register) {
   stub(ws, "new <slug>", (c) => c.option("--name <name>"));
   stub(ws, "rm <workspace>", (c) => c.requiredOption("--confirm <slug>"));
   stub(ws, "stats [workspace]");
-  const ops = root.command("ops").description("整文件处理");
+  const ops = root.command("ops").description(t("整文件处理"));
   add(
     ops,
     "capabilities",
-    "已实现的格式矩阵",
+    t("已实现的格式矩阵"),
     async (_ctx, _args, o) => ({
       items: [
         {
@@ -1548,17 +1558,17 @@ export function commands(root: Command, register: Register) {
     add(
       ops,
       `${action} <file>`,
-      "提交处理任务",
+      t("提交处理任务"),
       async (ctx, [path], o) => {
         const row = await file(ctx, path);
         guard(row, o);
-        if (o.force) throw unsupported("处理产物覆盖");
+        if (o.force) throw unsupported(t("处理产物覆盖"));
         if (o.idempotencyKey !== undefined)
-          throw unsupported("处理任务的调用方幂等键");
+          throw unsupported(t("处理任务的调用方幂等键"));
         if (o.output !== undefined && !o.output.trim())
-          throw usage("--output 不能为空");
+          throw usage(t("--output 不能为空"));
         if (!row.currentRevisionId)
-          fail("CONTENT_NOT_AVAILABLE", "文件尚无可处理的版本", 6);
+          fail("CONTENT_NOT_AVAILABLE", t("文件尚无可处理的版本"), 6);
         const format = String(row.format ?? row.name.split(".").at(-1))
           .toLowerCase()
           .replace(/^key$/, "keynote");
@@ -1567,7 +1577,7 @@ export function commands(root: Command, register: Register) {
             ? ["docx", "keynote"]
             : ["pptx", "docx", "pdf", "keynote"];
         if (!supported.includes(format))
-          fail("UNSUPPORTED_FORMAT", "不支持的输入格式");
+          fail("UNSUPPORTED_FORMAT", t("不支持的输入格式"));
         let target: Awaited<ReturnType<typeof destination>> | undefined;
         let outputDir: ObjectRow | undefined;
         if (o.output) {
@@ -1578,15 +1588,15 @@ export function commands(root: Command, register: Register) {
               o.output,
               row.name.replace(/\.[^.]+$/, "") + ".pdf",
             );
-            if (target.target) fail("OBJECT_EXISTS", "输出目标存在", 6);
+            if (target.target) fail("OBJECT_EXISTS", t("输出目标存在"), 6);
           }
         }
         if (
           (action === "convert" && o.to !== "pdf") ||
           (action === "render" && o.to !== "webp")
         )
-          fail("UNSUPPORTED_FORMAT", "不支持的输出格式");
-        if (o.pages) throw unsupported("渲染页范围");
+          fail("UNSUPPORTED_FORMAT", t("不支持的输出格式"));
+        if (o.pages) throw unsupported(t("渲染页范围"));
         if (ctx.opts.dryRun) return { dry_run: true, file_id: row.id };
         const p = {
           spaceId: await ctx.space(),
@@ -1606,7 +1616,7 @@ export function commands(root: Command, register: Register) {
           operationId: task.operationId,
         });
         if (["failed", "cancelled"].includes(task.status))
-          throw new CliError("JOB_FAILED", "处理任务失败", 9, {
+          throw new CliError("JOB_FAILED", t("处理任务失败"), 9, {
             job_id: handle,
             state: task.status,
             serverCode: task.errorCode,
@@ -1635,7 +1645,7 @@ export function commands(root: Command, register: Register) {
             ctx.waitMs,
           );
           if (done.status !== "succeeded")
-            throw new CliError("JOB_FAILED", "处理任务失败", 9, {
+            throw new CliError("JOB_FAILED", t("处理任务失败"), 9, {
               job_id: handle,
               state: done.status,
               serverCode: done.errorCode,
@@ -1650,7 +1660,7 @@ export function commands(root: Command, register: Register) {
             )
               throw new CliError(
                 "OUTPUT_TARGET_CHANGED",
-                "等待期间输出目录已变化，请核实输出目标",
+                t("等待期间输出目录已变化，请核实输出目标"),
                 6,
                 { job_id: handle },
               );
@@ -1665,7 +1675,7 @@ export function commands(root: Command, register: Register) {
             )
               throw new CliError(
                 "OUTPUT_TARGET_CHANGED",
-                "等待期间输出父目录已变化",
+                t("等待期间输出父目录已变化"),
                 6,
                 { job_id: handle },
               );
@@ -1679,9 +1689,14 @@ export function commands(root: Command, register: Register) {
                 )
               : done.outputs;
           if (!outputs.length)
-            throw new CliError("RESULT_NOT_AVAILABLE", "任务产物已不可用", 6, {
-              job_id: handle,
-            });
+            throw new CliError(
+              "RESULT_NOT_AVAILABLE",
+              t("任务产物已不可用"),
+              6,
+              {
+                job_id: handle,
+              },
+            );
           for (const output of outputs) {
             const suffix = `-${output.ordinal + 1}.${output.format ?? "webp"}`;
             const name =
@@ -1735,7 +1750,7 @@ export function commands(root: Command, register: Register) {
             });
           throw new CliError(
             "BACKEND_UNAVAILABLE",
-            "等待超时，服务端任务未取消",
+            t("等待超时，服务端任务未取消"),
             9,
             { job_id: handle },
           );
@@ -1771,13 +1786,14 @@ export function commands(root: Command, register: Register) {
         .option("--output <path>"),
     );
   }
-  const jobs = root.command("jobs").description("处理任务");
+  const jobs = root.command("jobs").description(t("处理任务"));
   stub(jobs, "ls", (c) => paginate(c).option("--state <state>"));
   stub(jobs, "cancel <job-id>");
   for (const action of ["status", "result"]) {
-    add(jobs, `${action} <job-id>`, "读取任务", async (ctx, [id]) => {
+    add(jobs, `${action} <job-id>`, t("读取任务"), async (ctx, [id]) => {
       const p = jobData(id);
-      if (p.spaceId !== (await ctx.space())) throw usage("任务不属于选定空间");
+      if (p.spaceId !== (await ctx.space()))
+        throw usage(t("任务不属于选定空间"));
       const api = await ctx.client();
       const task =
         p.type === "deletion"
@@ -1789,9 +1805,9 @@ export function commands(root: Command, register: Register) {
                 revisionId: p.revisionId,
                 operationId: p.operationId,
               })
-            : fail("JOB_NOT_FOUND", "未知任务类型", 5);
+            : fail("JOB_NOT_FOUND", t("未知任务类型"), 5);
       if (action === "result" && ["failed", "cancelled"].includes(task.status))
-        throw new CliError("JOB_FAILED", "任务已失败或取消", 9, {
+        throw new CliError("JOB_FAILED", t("任务已失败或取消"), 9, {
           job_id: id,
           state: task.status,
           serverCode: "errorCode" in task ? task.errorCode : undefined,
@@ -1803,14 +1819,14 @@ export function commands(root: Command, register: Register) {
         "outputs" in task &&
         !task.outputs.length
       )
-        throw new CliError("RESULT_NOT_AVAILABLE", "任务产物已不可用", 6, {
+        throw new CliError("RESULT_NOT_AVAILABLE", t("任务产物已不可用"), 6, {
           job_id: id,
         });
       if (
         action === "result" &&
         !["succeeded", "completed"].includes(task.status)
       )
-        fail("JOB_NOT_READY", "任务尚未成功完成", 6);
+        fail("JOB_NOT_READY", t("任务尚未成功完成"), 6);
       return {
         job_id: id,
         ...task,
@@ -1823,11 +1839,11 @@ export function commands(root: Command, register: Register) {
       };
     });
   }
-  const version = root.command("version").description("文件历史");
+  const version = root.command("version").description(t("文件历史"));
   add(
     version,
     "ls <file>",
-    "列出历史版本",
+    t("列出历史版本"),
     async (ctx, [path], o) => {
       const row = await file(ctx, path);
       const key = JSON.stringify([
@@ -1861,11 +1877,11 @@ export function commands(root: Command, register: Register) {
   add(
     version,
     "restore <file>",
-    "恢复为新版本",
+    t("恢复为新版本"),
     async (ctx, [path], o) => {
       if (o.ifVersion !== undefined)
         throw unsupported(
-          "恢复时的完整对象版本条件；后端仅支持当前内容版本条件",
+          t("恢复时的完整对象版本条件；后端仅支持当前内容版本条件"),
         );
       const row = await file(ctx, path);
       guard(row, o);
@@ -1876,7 +1892,7 @@ export function commands(root: Command, register: Register) {
         fileId: row.id,
         revisionId: o.to!,
       });
-      const preview = await ctx.confirm("恢复文件版本", {
+      const preview = await ctx.confirm(t("恢复文件版本"), {
         file_id: row.id,
         to: o.to,
       });
@@ -1917,7 +1933,7 @@ export function commands(root: Command, register: Register) {
           )
             throw new CliError(
               "IDEMPOTENCY_CONFLICT",
-              "此幂等键已用于不同的版本恢复请求",
+              t("此幂等键已用于不同的版本恢复请求"),
               6,
             );
           if (previous) request = previous;
@@ -1931,8 +1947,8 @@ export function commands(root: Command, register: Register) {
     (c) => mutate(c).requiredOption("--to <version>"),
   );
   for (const format of ["pptx", "docx"]) {
-    const group = root.command(format).description("结构化文件能力");
-    add(group, "capabilities", "结构化能力", async () => ({
+    const group = root.command(format).description(t("结构化文件能力"));
+    add(group, "capabilities", t("结构化能力"), async () => ({
       items: [],
       next_cursor: null,
       implemented: false,
