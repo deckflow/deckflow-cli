@@ -1805,3 +1805,15 @@ it("issue 2: preserves safe backend reasons for disabled content search", async 
     ]);
   }
 });
+
+it("issue 92: keeps search index profile conflicts distinct from file version conflicts", async () => {
+  for (const payload of [
+    { code: "INDEX_PROFILE_MISMATCH" },
+    { code: "resourceDuplicateAdd", data: ["INDEX_PROFILE_MISMATCH"] },
+  ]) {
+    handler = (_, res) => json(res, payload, 409);
+    const error = result(await cli(["seek", "query", "--json"]), 4);
+    expect(error.code).toBe("INDEX_PROFILE_MISMATCH");
+    expect(error.retryable).toBe(false);
+  }
+});

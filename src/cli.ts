@@ -77,9 +77,12 @@ function failure(error: unknown) {
   const status = e?.status;
   if (status) {
     const code =
-      typeof e.code === "string" && /^[a-z0-9_]{1,80}$/i.test(e.code)
-        ? e.code
-        : `HTTP_${status}`;
+      e.code === "INDEX_PROFILE_MISMATCH" ||
+      (Array.isArray(e.data) && e.data.includes("INDEX_PROFILE_MISMATCH"))
+        ? "INDEX_PROFILE_MISMATCH"
+        : typeof e.code === "string" && /^[a-z0-9_]{1,80}$/i.test(e.code)
+          ? e.code
+          : `HTTP_${status}`;
     const exit =
       billingCodes.has(code) || status === 402
         ? 7
@@ -94,18 +97,21 @@ function failure(error: unknown) {
               429: 8,
             } as Record<number, number>
           )[status] ?? 9);
-    const message = (
-      {
-        2: "DeckBase 拒绝了请求参数",
-        3: "DeckBase 认证失败",
-        4: "DeckBase 拒绝访问",
-        5: "资源不存在或不可访问",
-        6: "资源状态冲突，请重新读取",
-        7: "DeckBase 额度或计费限制",
-        8: "DeckBase 请求过于频繁",
-        9: "DeckBase 请求失败",
-      } as Record<number, string>
-    )[exit];
+    const message =
+      code === "INDEX_PROFILE_MISMATCH"
+        ? "搜索索引模型配置不匹配"
+        : (
+            {
+              2: "DeckBase 拒绝了请求参数",
+              3: "DeckBase 认证失败",
+              4: "DeckBase 拒绝访问",
+              5: "资源不存在或不可访问",
+              6: "资源状态冲突，请重新读取",
+              7: "DeckBase 额度或计费限制",
+              8: "DeckBase 请求过于频繁",
+              9: "DeckBase 请求失败",
+            } as Record<number, string>
+          )[exit];
     return {
       exit,
       body: {
@@ -308,6 +314,7 @@ try {
       NOT_FOUND: "OBJECT_NOT_FOUND",
       OUTPUT_EXISTS: "OBJECT_EXISTS",
       NETWORK_ERROR: "BACKEND_UNAVAILABLE",
+      INDEX_PROFILE_MISMATCH: "INDEX_PROFILE_MISMATCH",
     };
     safe.code =
       (billingCodes.has(safe.code) ? safe.code : undefined) ??
