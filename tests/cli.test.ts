@@ -4,6 +4,7 @@ import {
   mkdtemp,
   mkdir,
   readFile,
+  readdir,
   rm,
   stat,
   truncate,
@@ -2617,4 +2618,70 @@ it("issue 81: a concurrently committed multipart session returns its original re
     result(await cli(["put", "LOCAL", "DEST", "--resume", id, "--json"])),
   ).toMatchObject({ fileId: "f1", revisionId: "r1", status: "committed" });
   expect(reads).toBe(2);
+});
+
+it("issue 122: SIGINT download cancellation removes partial temporary files", async () => {
+  handler = async (_, res, path) => {
+    if (path === "/slow") {
+      res.write(Buffer.alloc(65536));
+      await new Promise<void>((done) => res.once("close", done));
+      res.end();
+      return;
+    }
+    if (path.endsWith("/content"))
+      return json(res, {
+        bytes: 200000,
+        sha256: hash("unused"),
+        url: base + "/slow",
+        revisionId: "r1",
+      });
+    return json(res, { ...sampleFile, folderId: null });
+  };
+  const child = spawn(node, [binary, "get", "id:f1", "out", "--json"], {
+    cwd: temp,
+    env: {
+      ...process.env,
+      HOME: temp,
+      XDG_CONFIG_HOME: temp,
+      DECKFLOW_API_URL: base + "/api",
+      DECKFLOW_TOKEN: "synthetic",
+      DECKFLOW_WORKSPACE: "ws",
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stdout = "";
+  child.stdout.on("data", (d) => (stdout += d));
+  child.stderr.resume();
+  const finished = new Promise<number | null>((done) =>
+    child.on("close", done),
+  );
+  try {
+    for (let i = 0; i < 100; i++) {
+      if (
+        (await readdir(temp)).some(
+          (n) => n.startsWith(".deckflow-") && n.endsWith(".tmp"),
+        )
+      )
+        break;
+      await new Promise((done) => setTimeout(done, 10));
+    }
+    expect(
+      (await readdir(temp)).some(
+        (n) => n.startsWith(".deckflow-") && n.endsWith(".tmp"),
+      ),
+    ).toBe(true);
+    child.kill("SIGINT");
+    expect(await finished).toBe(2);
+    expect(JSON.parse(stdout).error.code).toBe("CANCELLED");
+    expect(
+      (await readdir(temp)).some(
+        (n) => n.startsWith(".deckflow-") && n.endsWith(".tmp"),
+      ),
+    ).toBe(false);
+    await expect(stat(join(temp, "out"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  } finally {
+    if (child.exitCode === null) child.kill("SIGKILL");
+  }
 });

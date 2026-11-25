@@ -722,53 +722,65 @@ export async function download(
       })
     : await api("file.content", { spaceId, fileId });
   const timeout = AbortSignal.timeout(ctx.requestMs);
-  const response = await ctx.fetch(storageUrl(content.url), {
-    signal: timeout,
-  });
-  if (!response.ok || !response.body) {
-    await response.body?.cancel();
-    throw new CliError(
-      "STORAGE_DOWNLOAD_FAILED",
-      `存储下载失败 (${response.status})`,
-      response.status === 402
-        ? 7
-        : response.status === 403
-          ? 4
-          : response.status === 404
-            ? 5
-            : 8,
-      { status: response.status },
-    );
-  }
-  const temp = join(dirname(target), `.deckflow-${randomUUID()}.tmp`);
+  const cancellation = new AbortController();
+  const cancel = () =>
+    cancellation.abort(new CliError("CANCELLED", "下载已取消", 2));
+  const signal = AbortSignal.any([timeout, cancellation.signal]);
+  process.on("SIGINT", cancel);
   try {
-    const hash = createHash("sha256");
-    let bytes = 0;
-    await pipeline(
-      Readable.fromWeb(
-        response.body as import("node:stream/web").ReadableStream,
-      ),
-      async function* (source) {
-        for await (const chunk of source) {
-          hash.update(chunk);
-          bytes += chunk.length;
-          yield chunk;
-        }
-      },
-      createWriteStream(temp, { flags: "wx", mode: 0o600 }),
-      { signal: timeout },
-    );
-    if (bytes !== content.bytes || hash.digest("hex") !== content.sha256)
+    const response = await ctx.fetch(storageUrl(content.url), {
+      signal,
+    });
+    if (!response.ok || !response.body) {
+      await response.body?.cancel();
       throw new CliError(
-        "DOWNLOAD_INTEGRITY_FAILED",
-        "下载内容与服务端校验值不一致",
-        9,
+        "STORAGE_DOWNLOAD_FAILED",
+        `存储下载失败 (${response.status})`,
+        response.status === 402
+          ? 7
+          : response.status === 403
+            ? 4
+            : response.status === 404
+              ? 5
+              : 8,
+        { status: response.status },
       );
-    if (opts.overwrite) await rename(temp, target);
-    else await link(temp, target);
-    return { fileId, revisionId: content.revisionId, path: target, bytes };
+    }
+    const temp = join(dirname(target), `.deckflow-${randomUUID()}.tmp`);
+    try {
+      const hash = createHash("sha256");
+      let bytes = 0;
+      await pipeline(
+        Readable.fromWeb(
+          response.body as import("node:stream/web").ReadableStream,
+        ),
+        async function* (source) {
+          for await (const chunk of source) {
+            hash.update(chunk);
+            bytes += chunk.length;
+            yield chunk;
+          }
+        },
+        createWriteStream(temp, { flags: "wx", mode: 0o600 }),
+        { signal },
+      );
+      if (bytes !== content.bytes || hash.digest("hex") !== content.sha256)
+        throw new CliError(
+          "DOWNLOAD_INTEGRITY_FAILED",
+          "下载内容与服务端校验值不一致",
+          9,
+        );
+      if (opts.overwrite) await rename(temp, target);
+      else await link(temp, target);
+      return { fileId, revisionId: content.revisionId, path: target, bytes };
+    } finally {
+      await rm(temp, { force: true });
+    }
+  } catch (error) {
+    if (cancellation.signal.aborted) throw cancellation.signal.reason;
+    throw error;
   } finally {
-    await rm(temp, { force: true });
+    process.off("SIGINT", cancel);
   }
 }
 
