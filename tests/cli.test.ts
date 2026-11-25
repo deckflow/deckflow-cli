@@ -2703,3 +2703,66 @@ it("issue 121: chunked text decoding preserves UTF-8 sequences across decode bou
   expect((await cli(["cat", "id:f1"])).stdout).toBe(text);
   expect(result(await cli(["cat", "id:f1", "--json"])).text).toBe(text);
 });
+
+it("issue 73: preview and persisted renders enumerate all screenshot pages", async () => {
+  const pages = Array.from({ length: 101 }, (_, ordinal) => ({
+    artifactId: "a",
+    itemId: "i" + ordinal,
+    ordinal,
+    mediaType: "image/webp",
+    format: "webp",
+    url: base + "/unused",
+    bytes: 1,
+    sha256: "unused",
+  }));
+  let stored = 0;
+  handler = (req, res, path) => {
+    if (path.endsWith("/screenshots"))
+      return json(res, { operationId: "op", revisionId: "r1", pages });
+    if (path.includes("/conversions")) {
+      const task = {
+        operationId: "op",
+        target: "screenshots",
+        status: "succeeded",
+        outputs: pages.slice(0, 100),
+      };
+      return json(
+        res,
+        /\/conversions(?:\?|$)/.test(path) && req.method === "GET"
+          ? { items: [task] }
+          : task,
+      );
+    }
+    if (req.method === "POST" && path.endsWith("/files"))
+      return json(res, { ...sampleFile, id: "out" + ++stored });
+    if (path.endsWith("/content"))
+      return json(res, { mediaType: "application/pdf", revisionId: "r1" });
+    if (path.includes("/folders")) return json(res, { rows: [], count: 0 });
+    return json(
+      res,
+      path.endsWith("/files/f1")
+        ? sampleFile
+        : { rows: [sampleFile], count: 1 },
+    );
+  };
+  expect(
+    result(
+      await cli(["view", "/" + sampleFile.name, "--page", "101", "--json"]),
+    ).pages[0].page,
+  ).toBe(101);
+  expect(
+    result(
+      await cli([
+        "ops",
+        "render",
+        "/" + sampleFile.name,
+        "--to",
+        "webp",
+        "--output",
+        "/",
+        "--json",
+      ]),
+    ).output,
+  ).toHaveLength(101);
+  expect(stored).toBe(101);
+}, 20000);

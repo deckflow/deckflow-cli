@@ -330,6 +330,29 @@ async function tree(
   }
   return result;
 }
+async function screenshotOutputs(
+  api: ApiCall,
+  params: {
+    spaceId: string;
+    fileId: string;
+    revisionId: string;
+    operationId: string;
+  },
+  outputs: {
+    artifactId: string;
+    itemId?: string;
+    ordinal: number;
+    mediaType: string;
+    format?: string | null;
+  }[],
+) {
+  if (outputs.length < 100) return outputs;
+  const complete = await api("conversion.screenshots", params);
+  return complete.pages.map((page) => ({
+    ...page,
+    format: page.mediaType.split("/")[1],
+  }));
+}
 function jobId(data: Record<string, unknown>) {
   return "dfj1." + Buffer.from(JSON.stringify(data)).toString("base64url");
 }
@@ -973,7 +996,18 @@ export function commands(root: Command, register: Register) {
           t.outputs.length > 0,
       );
       if (!task) fail("PREVIEW_NOT_AVAILABLE", "没有当前版本预览");
-      const pages = task!.outputs.map((x) => ({
+      const complete = await screenshotOutputs(
+        api,
+        {
+          spaceId,
+          fileId: row.id,
+          revisionId: row.currentRevisionId!,
+          operationId: task!.operationId,
+        },
+        task!.outputs,
+      );
+      if (!complete.length) fail("PREVIEW_NOT_AVAILABLE", "没有可用预览产物");
+      const pages = complete.map((x) => ({
         page: x.ordinal + 1,
         artifact_id: x.artifactId,
         retrieval: {
@@ -1579,7 +1613,14 @@ export function commands(root: Command, register: Register) {
                 { job_id: handle },
               );
           }
-          const outputs = done.outputs;
+          const outputs =
+            action === "render"
+              ? await screenshotOutputs(
+                  await ctx.client(),
+                  { ...p, operationId: task.operationId },
+                  done.outputs,
+                )
+              : done.outputs;
           if (!outputs.length)
             throw new CliError("RESULT_NOT_AVAILABLE", "任务产物已不可用", 6, {
               job_id: handle,
