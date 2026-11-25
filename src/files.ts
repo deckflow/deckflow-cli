@@ -521,10 +521,6 @@ export async function upload(
     relativeFolders: subfolders,
     createFolders: !!opts.createFolders,
   };
-  if (directory || ctx.opts.dryRun) {
-    const preview = await ctx.confirm("上传", impact, true);
-    if (preview) return preview;
-  }
   const space = await api("space.detail", { id: spaceId });
   let caps: Record<string, unknown> | undefined;
   for (let offset = 0; ;) {
@@ -548,6 +544,16 @@ export async function upload(
   const maxParts = Number(caps?.maxParts ?? 10000);
   if (!Number.isSafeInteger(maxParts) || maxParts < 1)
     throw new CliError("INVALID_UPLOAD_LIMIT", "区域分片配置无效", 9);
+  for (const path of paths) {
+    const info = await lstat(path);
+    if (!info.isFile()) throw usage("上传源必须是常规文件");
+    if (info.size > Number(caps?.maxUploadBytes ?? Infinity))
+      throw usage("文件超过区域上传上限");
+  }
+  if (directory || ctx.opts.dryRun) {
+    const preview = await ctx.confirm("上传", impact, true);
+    if (preview) return preview;
+  }
   const results = [];
   if (planFolders)
     folders.set("", await folderPath(api, spaceId, opts.folder!, true));

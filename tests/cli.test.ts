@@ -2558,3 +2558,21 @@ it("issue 78: discovers paginated upload regions before enforcing their limits",
   expect(requests.filter((r) => r.path.includes("/regions"))).toHaveLength(2);
   expect(requests.some((r) => r.method === "POST")).toBe(false);
 });
+
+it("issue 77: upload dry-run checks the same known regional file-size limit", async () => {
+  await writeFile(join(temp, "source"), "too large");
+  handler = (_, res, path) =>
+    path.endsWith("/spaces/ws")
+      ? json(res, { regionId: "reg" })
+      : path.includes("/regions")
+        ? json(res, {
+            rows: [{ id: "reg", capabilities: { maxUploadBytes: 4 } }],
+            count: 1,
+          })
+        : json(res, { rows: [], count: 0 });
+  expect(
+    result(await cli(["put", "source", "/target", "--dry-run", "--json"]), 2)
+      .code,
+  ).toBe("INVALID_ARGUMENT");
+  expect(requests.some((r) => r.method === "POST")).toBe(false);
+});
