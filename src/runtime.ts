@@ -579,36 +579,45 @@ export function commands(root: Command, register: Register) {
         return { dry_run: true, source: row.path, destination: d.path };
       const api = await ctx.client(),
         spaceId = await ctx.space();
+      let updated: Record<string, unknown>;
       if (row.kind === "file") {
         if (renamed)
-          await api("file.modify", {
+          updated = await api("file.modify", {
             spaceId,
             fileId: row.id,
             expectedRowVersion: row.rowVersion!,
             name: d.name,
           });
         else
-          await api("file.move", {
+          updated = await api("file.move", {
             spaceId,
             fileId: row.id,
             expectedRowVersion: row.rowVersion!,
             folderId: d.parentId,
           });
       } else if (renamed)
-        await api("folder.modify", {
+        updated = await api("folder.modify", {
           spaceId,
           folderId: row.id,
           expectedRowVersion: row.rowVersion!,
           name: d.name,
         });
       else
-        await api("folder.move", {
+        updated = await api("folder.move", {
           spaceId,
           folderId: row.id,
           expectedRowVersion: row.rowVersion!,
           parentId: d.parentId,
         });
-      return resolveObject(ctx, "id:" + row.id);
+      const result = { ...row, ...updated, path: d.path };
+      result.version = Buffer.from(
+        JSON.stringify({
+          id: result.id,
+          row: result.rowVersion,
+          revision: result.currentRevisionId ?? null,
+        }),
+      ).toString("base64url");
+      return result;
     },
     (c) => mutate(c).option("--force"),
   );

@@ -1994,3 +1994,25 @@ it("issue 99: current preview lookup never scans unrelated historical revisions"
   );
   expect(requests.some((r) => /\/revisions(?:\?|$)/.test(r.path))).toBe(false);
 });
+
+it("issue 94: returns the committed move response without a fallible readback", async () => {
+  handler = (req, res, path) => {
+    if (req.method !== "GET")
+      return json(res, { ...sampleFile, name: "renamed.pdf", rowVersion: 9 });
+    if (path.endsWith("/files/f1")) return json(res, {}, 503);
+    if (path.includes("/folders")) return json(res, { rows: [], count: 0 });
+    return json(res, { rows: [sampleFile], count: 1 });
+  };
+  const data = result(
+    await cli(["mv", "/" + sampleFile.name, "/renamed.pdf", "--json"]),
+  );
+  expect(data).toMatchObject({
+    id: "f1",
+    path: "/renamed.pdf",
+    name: "renamed.pdf",
+    rowVersion: 9,
+  });
+  expect(
+    requests.some((r) => r.method === "GET" && r.path.endsWith("/files/f1")),
+  ).toBe(false);
+});
