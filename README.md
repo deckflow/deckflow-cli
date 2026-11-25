@@ -1,6 +1,6 @@
 # DeckFlow CLI
 
-`deckflow` 是面向开发者、Agent 和 CI 的 DeckBase 文件命令行客户端，提供文件与目录管理、内容检索、已有文本与视觉预览读取、文件处理任务和版本管理。当前 npm 包版本为 `0.2.0`，命令设计遵循 v0.3 规范。
+`deckflow` 是面向开发者、Agent 和 CI 的 DeckBase 文件命令行客户端，提供文件与目录管理、内容检索、已有文本与视觉预览读取、文件处理任务和版本管理。当前源码包版本为 `0.3.0`，命令设计遵循 v0.3 规范。
 
 ## 安装
 
@@ -11,7 +11,7 @@ npm install -g @deckflow/deckflow-cli --registry=https://registry.npmjs.org
 deckflow --version
 ```
 
-如曾为 `@deckflow` 配置 GitHub Packages scope registry，使用公共 npm 前先移除该 scope 配置。旧包用户先参阅[迁移说明](docs/migration-v03.md)。也可以用 `npm install -g ./deckflow-deckflow-cli-0.2.0.tgz` 安装本地构建包。安装包自带 SDK 运行时代码。
+如曾为 `@deckflow` 配置 GitHub Packages scope registry，使用公共 npm 前先移除该 scope 配置。旧包用户先参阅[迁移说明](docs/migration-v03.md)。也可以用 `npm install -g ./deckflow-deckflow-cli-0.3.0.tgz` 安装本地构建包。安装包自带 SDK 运行时代码。
 
 GitHub Packages 是独立的可选发布渠道。使用该渠道时，将下面两行添加到用户级 `.npmrc`，通过环境变量提供有包读取权限的 GitHub PAT classic，再执行安装命令：
 
