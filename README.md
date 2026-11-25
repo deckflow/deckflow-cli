@@ -81,6 +81,16 @@ pnpm pack
 
 升级 SDK 时，同步更新 CI 固定的 commit，重新构建 SDK 并安装 CLI 开发依赖后运行检查。CLI 从实际安装 SDK 的类型声明与运行时代码生成方法清单，用于校验适配器使用的接口及其 HTTP 动词。已有 `dist-sdk` 时可直接安装 CLI 依赖并运行检查；若重新生成 SDK 遇到上游 `embed.query` 类型错误，参见迁移说明中的已知限制。
 
+测试本地代码全局安装后的效果：
+
+```sh
+pnpm install:global
+deckflow --version
+deckflow --help
+```
+
+该命令会重新构建，将与发布相同的 `.tgz` 安装包通过 `npm install --global` 安装到当前 npm 全局目录，并清理临时安装包。修改代码后再次运行即可更新全局命令；执行前需安装项目开发依赖，并确保 npm 全局命令目录已加入 `PATH`。
+
 ## 本地发布
 
 更新 `package.json` 的版本号，并为目标 registry 配置有发布权限的 npm 凭据。两个命令都会重新构建并打包当前版本。
