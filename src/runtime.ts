@@ -1,4 +1,5 @@
 import { Command } from "commander";
+import { constants as bufferConstants } from "node:buffer";
 import { basename, dirname, join } from "node:path";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -469,15 +470,38 @@ export function commands(root: Command, register: Register) {
         createHash("sha256").update(bytes).digest("hex") !== c.sha256)
     )
       fail("DOWNLOAD_INTEGRITY_FAILED", "下载内容与服务端校验值不一致", 9);
-    let text: string;
+    const chunks: string[] = [];
     try {
-      text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
-        bytes,
-      );
+      const decoder = new TextDecoder("utf-8", {
+        fatal: true,
+        ignoreBOM: true,
+      });
+      for (let offset = 0; offset < bytes.length; offset += 1024 * 1024)
+        chunks.push(
+          decoder.decode(bytes.subarray(offset, offset + 1024 * 1024), {
+            stream: true,
+          }),
+        );
+      chunks.push(decoder.decode());
     } catch {
       return fail("TEXT_NOT_AVAILABLE", "内容不是 UTF-8 文本");
     }
-    return { text, file_id: row.id, path: row.path, source: "original_text" };
+    const metadata = {
+      file_id: row.id,
+      path: row.path,
+      source: "original_text",
+    };
+    if (!ctx.opts.json) return { ...metadata, text_chunks: chunks };
+    if (
+      chunks.reduce((size, chunk) => size + chunk.length, 0) >
+      bufferConstants.MAX_STRING_LENGTH - 1024 * 1024
+    )
+      fail(
+        "TEXT_SIZE_LIMIT",
+        "文本超过单个 JSON 字符串的运行时大小限制；请使用普通文本输出或 get",
+        2,
+      );
+    return { ...metadata, text: chunks.join("") };
   });
   add(
     root,

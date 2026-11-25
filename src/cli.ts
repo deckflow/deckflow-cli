@@ -195,6 +195,13 @@ function display(result: unknown, json: boolean) {
   else if (
     safe &&
     typeof safe === "object" &&
+    "text_chunks" in safe &&
+    Array.isArray(safe.text_chunks)
+  ) {
+    for (const chunk of safe.text_chunks) process.stdout.write(chunk);
+  } else if (
+    safe &&
+    typeof safe === "object" &&
     "text" in safe &&
     typeof safe.text === "string"
   )

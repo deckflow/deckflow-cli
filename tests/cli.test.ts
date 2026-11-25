@@ -2685,3 +2685,21 @@ it("issue 122: SIGINT download cancellation removes partial temporary files", as
     if (child.exitCode === null) child.kill("SIGKILL");
   }
 });
+
+it("issue 121: chunked text decoding preserves UTF-8 sequences across decode boundaries", async () => {
+  const text =
+    "\ufeff" + "a".repeat(1024 * 1024 - 4) + "€" + "z".repeat(1024 * 1024);
+  handler = (_, res, path) =>
+    path === "/large"
+      ? res.end(text)
+      : path.endsWith("/content")
+        ? json(res, {
+            mediaType: "text/plain",
+            url: base + "/large",
+            bytes: Buffer.byteLength(text),
+            sha256: hash(text),
+          })
+        : json(res, { ...sampleFile, folderId: null });
+  expect((await cli(["cat", "id:f1"])).stdout).toBe(text);
+  expect(result(await cli(["cat", "id:f1", "--json"])).text).toBe(text);
+});
