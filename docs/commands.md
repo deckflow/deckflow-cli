@@ -36,6 +36,8 @@ deckflow ops convert /Reports/report.docx --to pdf --output /Reports/export.pdf 
 
 列表默认 50 条，`--limit` 范围 1–100，使用 `--cursor` 继续。游标绑定范围与过滤条件；offset 适配不提供快照一致性，大型目录遍历会读取全部可访问元数据。
 
+`ls` 的普通输出和 `--json` 列表项仅保留 `id`、`name`、`kind`、`path`，以及可用的 `format`、`updatedAt`、`version`。递归列表使用相同字段；完整元数据通过 `info <object>` 获取。
+
 `--if-version` 使用 info 返回的版本；过期版本不会自动刷新重试。`--dry-run` 不提交处理任务或写入资源。永久删除、版本恢复需要 `--yes` 或交互确认。`--timeout` 为正整数秒，默认 30；`--wait-timeout` 使用时长（例如 10m），默认 10m。
 
 预览和产物通过返回的 SDK method/params 或 artifact ID 获取，访问仍由服务端授权；不创建公开分享。处理默认只产生后台 artifact，不自动创建受管文件。render 多产物持久化要求已有输出目录，已有路径始终冲突。

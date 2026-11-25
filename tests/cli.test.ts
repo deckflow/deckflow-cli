@@ -265,6 +265,15 @@ describe("v0.3 contract", () => {
     expect(requests).toEqual([]);
   });
   it("lists mixed objects with bound continuation cursors", async () => {
+    const listedFile = {
+      ...sampleFile,
+      format: "pdf",
+      updatedAt: "2026-11-24T11:53:35.424Z",
+      description: null,
+      source: {},
+      extra: { large: "metadata" },
+      creatorId: "creator",
+    };
     handler = (_, res, path) => {
       if (path.includes("/folders"))
         return json(res, {
@@ -272,13 +281,16 @@ describe("v0.3 contract", () => {
           count: 1,
         });
       if (path.includes("/files"))
-        return json(res, { rows: [sampleFile], count: 1 });
+        return json(res, { rows: [listedFile], count: 1 });
     };
     const first = result(
       await cli(["--ws", "selected", "ls", "/", "--limit", "1", "--json"]),
     );
     expect(first.items[0].kind).toBe("directory");
     expect(first.items[0].path).toBe("/A");
+    expect(Object.keys(first.items[0]).sort()).toEqual(
+      ["id", "name", "kind", "path", "version"].sort(),
+    );
     expect(first.next_cursor).toBeTruthy();
     const second = result(
       await cli([
@@ -294,6 +306,25 @@ describe("v0.3 contract", () => {
       ]),
     );
     expect(second.items[0].id).toBe("f1");
+    expect(second.items[0]).toEqual({
+      id: listedFile.id,
+      name: listedFile.name,
+      kind: "file",
+      path: "/" + listedFile.name,
+      format: listedFile.format,
+      updatedAt: listedFile.updatedAt,
+      version: expect.any(String),
+    });
+    const plain = await cli(["ls", "/", "--ws", "selected"]);
+    expect(plain.code).toBe(0);
+    expect(plain.stdout).toContain(listedFile.updatedAt);
+    for (const field of [
+      "rowVersion",
+      "currentRevisionId",
+      "creatorId",
+      "extra",
+    ])
+      expect(plain.stdout).not.toContain(field + ":");
     expect(second.next_cursor).toBeNull();
     expect(requests.every((r) => r.path.includes("/selected/"))).toBe(true);
     expect(

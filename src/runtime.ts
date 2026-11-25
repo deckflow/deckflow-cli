@@ -435,7 +435,17 @@ export function commands(root: Command, register: Register) {
     async (ctx, [path = "/"], o) => {
       const scope = await directory(ctx, path);
       return listing(
-        await tree(ctx, scope, !!o.recursive),
+        (await tree(ctx, scope, !!o.recursive)).map(
+          ({ id, name, kind, path, format, updatedAt, version }) => ({
+            id,
+            name,
+            kind,
+            path,
+            ...(format == null ? {} : { format }),
+            ...(updatedAt == null ? {} : { updatedAt }),
+            ...(version == null ? {} : { version }),
+          }),
+        ),
         o,
         JSON.stringify([
           await ctx.apiUrl(),
