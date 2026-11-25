@@ -382,9 +382,12 @@ export function commands(root: Command, register: Register) {
     const row = await resolveObject(ctx, path);
     if (row.kind === "directory") return row;
     const api = await ctx.client();
-    const content = await api("file.content", {
+    if (!row.currentRevisionId)
+      return { ...row, content_status: "not_available" };
+    const content = await api("revision.content", {
       spaceId: await ctx.space(),
       fileId: row.id,
+      revisionId: row.currentRevisionId,
     });
     return { ...row, mime_type: content.mediaType, size_bytes: content.bytes };
   });

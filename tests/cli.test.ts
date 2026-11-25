@@ -1912,3 +1912,28 @@ it("issue 85: direct file permissions do not require readable parent directories
   expect(result(await cli(["get", "id:f1", "shared", "--json"])).bytes).toBe(6);
   expect(await readFile(join(temp, "shared"), "utf8")).toBe("shared");
 });
+
+it("issue 36: info metadata belongs to the same immutable revision snapshot", async () => {
+  handler = (_, res, path) => {
+    if (path.includes("/folders")) return json(res, { rows: [], count: 0 });
+    if (path.endsWith("/revisions/r1/content"))
+      return json(res, {
+        revisionId: "r1",
+        bytes: 100,
+        mediaType: "image/webp",
+      });
+    if (path.endsWith("/content"))
+      return json(res, {
+        revisionId: "r2",
+        bytes: 400,
+        mediaType: "image/webp",
+      });
+    return json(res, { rows: [sampleFile], count: 1 });
+  };
+  const data = result(await cli(["info", "/" + sampleFile.name, "--json"]));
+  expect(data.currentRevisionId).toBe("r1");
+  expect(data.size_bytes).toBe(100);
+  expect(requests.some((r) => r.path.endsWith("/files/f1/content"))).toBe(
+    false,
+  );
+});
