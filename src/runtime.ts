@@ -374,6 +374,14 @@ export function commands(root: Command, register: Register) {
       spaceId: await ctx.space(),
       fileId: row.id,
     });
+    if (ctx.opts.dryRun)
+      return {
+        dry_run: true,
+        file_id: row.id,
+        path: row.path,
+        size_bytes: c.bytes,
+        mime_type: c.mediaType,
+      };
     if (!/^(text\/|application\/(json|xml))/.test(c.mediaType))
       fail("TEXT_NOT_AVAILABLE", "没有可读文本表示");
     const res = await ctx.fetch(c.url, {
@@ -583,7 +591,9 @@ export function commands(root: Command, register: Register) {
         throw usage("复制目录需要 --recursive");
       if (
         row.kind === "directory" &&
-        (d.path === row.path || d.path.startsWith(row.path + "/"))
+        (row.path === "/" ||
+          d.path === row.path ||
+          d.path.startsWith(row.path + "/"))
       )
         throw usage("不能复制到自身或后代");
       const entries =
@@ -607,7 +617,13 @@ export function commands(root: Command, register: Register) {
             sourceFileId: r.id,
             sourceRevisionId: r.currentRevisionId!,
           },
-          refs: [{ sourceFileId: r.id, operation: "copy" }],
+          refs: [
+            {
+              sourceFileId: r.id,
+              sourceRevisionId: r.currentRevisionId!,
+              operation: "copy",
+            },
+          ],
           idempotencyKey: key,
         });
       const key = o.idempotencyKey ?? randomUUID();
@@ -632,10 +648,21 @@ export function commands(root: Command, register: Register) {
                   parentId: parent,
                   name: entry.name,
                 })
-              : await copy(entry, parent, entry.name, key + ":" + entry.id);
+              : await copy(
+                  entry,
+                  parent,
+                  entry.name,
+                  createHash("sha256")
+                    .update(JSON.stringify([key, entry.id]))
+                    .digest("hex"),
+                );
           if (entry.kind === "directory" && "id" in created)
             parents.set(entry.path, created.id);
-          results.push({ ok: true, path: entry.path, result: created });
+          results.push({
+            ok: true,
+            path: d.path + entry.path.slice(row.path.length),
+            result: created,
+          });
         } catch (error) {
           results.push({ ok: false, path: entry.path });
           throw new CliError("PARTIAL_FAILURE", "目录复制部分成功", 9, {
@@ -661,6 +688,12 @@ export function commands(root: Command, register: Register) {
       guard(row, o);
       const api = await ctx.client(),
         spaceId = await ctx.space();
+      if (
+        row.kind === "directory" &&
+        !o.recursive &&
+        (await all(api, spaceId, row.id)).length
+      )
+        fail("DIRECTORY_NOT_EMPTY", "目录非空，需要 --recursive", 6);
       const preview = await ctx.confirm("永久删除", {
         id: row.id,
         path: row.path,
@@ -1180,6 +1213,21 @@ export function commands(root: Command, register: Register) {
         const row = await file(ctx, path);
         guard(row, o);
         if (o.force) throw unsupported("处理产物覆盖");
+        if (o.idempotencyKey !== undefined)
+          throw unsupported("处理任务的调用方幂等键");
+        if (o.output !== undefined && !o.output.trim())
+          throw usage("--output 不能为空");
+        if (!row.currentRevisionId)
+          fail("CONTENT_NOT_AVAILABLE", "文件尚无可处理的版本", 6);
+        const format = String(row.format ?? row.name.split(".").at(-1))
+          .toLowerCase()
+          .replace(/^key$/, "keynote");
+        const supported =
+          action === "convert"
+            ? ["docx", "keynote"]
+            : ["pptx", "docx", "pdf", "keynote"];
+        if (!supported.includes(format))
+          fail("UNSUPPORTED_FORMAT", "不支持的输入格式");
         let target: Awaited<ReturnType<typeof destination>> | undefined;
         let outputDir: ObjectRow | undefined;
         if (o.output) {
@@ -1217,6 +1265,13 @@ export function commands(root: Command, register: Register) {
           type: "conversion",
           operationId: task.operationId,
         });
+        if (["failed", "cancelled"].includes(task.status))
+          throw new CliError("JOB_FAILED", "处理任务失败", 9, {
+            job_id: handle,
+            state: task.status,
+            serverCode: task.errorCode,
+            retryable: task.retryable,
+          });
         if (!o.output)
           return {
             job_id: handle,
@@ -1239,11 +1294,17 @@ export function commands(root: Command, register: Register) {
             ctx.waitMs,
           );
           if (done.status !== "succeeded")
-            throw new CliError("BACKEND_UNAVAILABLE", "处理任务失败", 9, {
+            throw new CliError("JOB_FAILED", "处理任务失败", 9, {
               job_id: handle,
               state: done.status,
+              serverCode: done.errorCode,
+              retryable: done.retryable,
             });
           const outputs = done.outputs;
+          if (!outputs.length)
+            throw new CliError("RESULT_NOT_AVAILABLE", "任务产物已不可用", 6, {
+              job_id: handle,
+            });
           const persisted: unknown[] = [];
           for (const output of outputs) {
             const name =
@@ -1294,6 +1355,8 @@ export function commands(root: Command, register: Register) {
           return { job_id: handle, state: "succeeded", output: persisted };
         } catch (e) {
           if (e instanceof CliError) throw e;
+          if ((e as { status?: number }).status)
+            throw Object.assign(e as object, { operation: { job_id: handle } });
           throw new CliError(
             "BACKEND_UNAVAILABLE",
             "等待超时，服务端任务未取消",
@@ -1351,6 +1414,22 @@ export function commands(root: Command, register: Register) {
                 operationId: p.operationId,
               })
             : fail("JOB_NOT_FOUND", "未知任务类型", 5);
+      if (action === "result" && ["failed", "cancelled"].includes(task.status))
+        throw new CliError("JOB_FAILED", "任务已失败或取消", 9, {
+          job_id: id,
+          state: task.status,
+          serverCode: "errorCode" in task ? task.errorCode : undefined,
+        });
+      if (
+        action === "result" &&
+        p.type === "conversion" &&
+        task.status === "succeeded" &&
+        "outputs" in task &&
+        !task.outputs.length
+      )
+        throw new CliError("RESULT_NOT_AVAILABLE", "任务产物已不可用", 6, {
+          job_id: id,
+        });
       if (
         action === "result" &&
         !["succeeded", "completed"].includes(task.status)
@@ -1400,6 +1479,13 @@ export function commands(root: Command, register: Register) {
     async (ctx, [path], o) => {
       const row = await file(ctx, path);
       guard(row, o);
+      await (
+        await ctx.client()
+      )("revision.detail", {
+        spaceId: await ctx.space(),
+        fileId: row.id,
+        revisionId: o.to!,
+      });
       const preview = await ctx.confirm("恢复文件版本", {
         file_id: row.id,
         to: o.to,

@@ -592,10 +592,13 @@ describe("processing adapters", () => {
         return json(res, { operationId: "op", status: "queued", outputs: [] });
       }
       if (path.includes("/files"))
-        return json(res, { rows: [sampleFile], count: 1 });
+        return json(res, {
+          rows: [{ ...sampleFile, name: "示例 file.docx" }],
+          count: 1,
+        });
     };
     const task = result(
-      await cli(["ops", "convert", "/示例 file.pdf", "--to", "pdf", "--json"]),
+      await cli(["ops", "convert", "/示例 file.docx", "--to", "pdf", "--json"]),
     );
     expect(task.job_id).toMatch(/^dfj1\./);
     expect(task.state).toBe("queued");
@@ -634,13 +637,16 @@ describe("processing adapters", () => {
         return json(res, { ...sampleFile, id: "export" });
       }
       if (path.includes("/files"))
-        return json(res, { rows: [sampleFile], count: 1 });
+        return json(res, {
+          rows: [{ ...sampleFile, name: "示例 file.docx" }],
+          count: 1,
+        });
     };
     const done = result(
       await cli([
         "ops",
         "convert",
-        "/示例 file.pdf",
+        "/示例 file.docx",
         "--to",
         "pdf",
         "--output",
@@ -1023,4 +1029,343 @@ describe("issue regressions: upload inputs", () => {
         .fileId,
     ).toBe("f1");
   });
+});
+
+describe("issue regressions: operations and preflight", () => {
+  const row = { ...sampleFile, name: "draft.docx" };
+  const handle =
+    "dfj1." +
+    Buffer.from(
+      JSON.stringify({
+        type: "conversion",
+        spaceId: "ws",
+        fileId: "f1",
+        revisionId: "r1",
+        operationId: "op",
+      }),
+    ).toString("base64url");
+  function setup(
+    task = {
+      operationId: "op",
+      status: "succeeded",
+      outputs: [] as unknown[],
+      errorCode: "CONVERTER_FAILED",
+      retryable: false,
+    },
+  ) {
+    handler = (req, res, path) => {
+      if (path.includes("/conversions"))
+        return json(
+          res,
+          req.method === "POST" ? { ...task, status: "queued" } : task,
+        );
+      if (path.includes("/folders")) return json(res, { rows: [], count: 0 });
+      if (path.includes("/files"))
+        return json(
+          res,
+          path.endsWith("/files/f1") ? row : { rows: [row], count: 1 },
+        );
+    };
+  }
+  it("rejects unsupported inputs, absent revisions, empty outputs and unsupported idempotency", async () => {
+    setup();
+    expect(
+      result(
+        await cli([
+          "ops",
+          "convert",
+          "/draft.docx",
+          "--to",
+          "pdf",
+          "--idempotency-key",
+          "key",
+          "--json",
+        ]),
+        2,
+      ).code,
+    ).toBe("UNSUPPORTED_OPERATION");
+    expect(
+      result(
+        await cli([
+          "ops",
+          "render",
+          "/draft.docx",
+          "--to",
+          "webp",
+          "--output",
+          "",
+          "--json",
+        ]),
+        2,
+      ).code,
+    ).toBe("INVALID_ARGUMENT");
+    const prior = handler;
+    handler = (req, res, path, body) =>
+      path.includes("/files")
+        ? json(res, { rows: [{ ...row, currentRevisionId: null }], count: 1 })
+        : prior(req, res, path, body);
+    for (const flags of [[], ["--dry-run"]])
+      expect(
+        result(
+          await cli([
+            "ops",
+            "render",
+            "/draft.docx",
+            "--to",
+            "webp",
+            ...flags,
+            "--json",
+          ]),
+          4,
+        ).code,
+      ).toBe("CONTENT_NOT_AVAILABLE");
+    handler = (req, res, path, body) =>
+      path.includes("/files")
+        ? json(res, { rows: [{ ...row, name: "notes.txt" }], count: 1 })
+        : prior(req, res, path, body);
+    for (const flags of [[], ["--dry-run"]])
+      expect(
+        result(
+          await cli([
+            "ops",
+            "convert",
+            "/notes.txt",
+            "--to",
+            "pdf",
+            ...flags,
+            "--json",
+          ]),
+          2,
+        ).code,
+      ).toBe("UNSUPPORTED_FORMAT");
+    expect(requests.every((r) => r.method === "GET")).toBe(true);
+  });
+  it("distinguishes empty and failed results from pending jobs", async () => {
+    setup();
+    expect(result(await cli(["jobs", "status", handle, "--json"])).state).toBe(
+      "succeeded",
+    );
+    expect(
+      result(await cli(["jobs", "result", handle, "--json"]), 4).code,
+    ).toBe("RESULT_NOT_AVAILABLE");
+    expect(
+      result(
+        await cli([
+          "ops",
+          "render",
+          "/draft.docx",
+          "--to",
+          "webp",
+          "--output",
+          "/",
+          "--json",
+        ]),
+        4,
+      ).code,
+    ).toBe("RESULT_NOT_AVAILABLE");
+    setup({
+      operationId: "op",
+      status: "failed",
+      outputs: [],
+      errorCode: "CONVERTER_FAILED",
+      retryable: false,
+    });
+    const failed = result(await cli(["jobs", "result", handle, "--json"]), 5);
+    expect(failed.code).toBe("JOB_FAILED");
+    expect(failed.details.serverCode).toBe("CONVERTER_FAILED");
+    const waiting = result(
+      await cli([
+        "ops",
+        "render",
+        "/draft.docx",
+        "--to",
+        "webp",
+        "--output",
+        "/",
+        "--json",
+      ]),
+      5,
+    );
+    expect(waiting.code).toBe("JOB_FAILED");
+    expect(waiting.details.serverCode).toBe("CONVERTER_FAILED");
+    expect(waiting.retryable).toBe(false);
+    const prior = handler;
+    handler = (req, res, path, body) =>
+      path.includes("/conversions")
+        ? json(res, {
+            operationId: "op",
+            status: "failed",
+            outputs: [],
+            errorCode: "CONVERTER_FAILED",
+            retryable: false,
+          })
+        : prior(req, res, path, body);
+    const immediate = result(
+      await cli(["ops", "render", "/draft.docx", "--to", "webp", "--json"]),
+      5,
+    );
+    expect(immediate.code).toBe("JOB_FAILED");
+    expect(immediate.details.serverCode).toBe("CONVERTER_FAILED");
+    expect(immediate.retryable).toBe(false);
+  });
+  it("preserves output persistence HTTP conflicts with the task handle", async () => {
+    setup({
+      operationId: "op",
+      status: "succeeded",
+      outputs: [{ artifactId: "a", ordinal: 0, format: "webp" }],
+      errorCode: "",
+      retryable: false,
+    });
+    const prior = handler;
+    handler = (req, res, path, body) =>
+      req.method === "POST" && path.endsWith("/files")
+        ? json(res, { code: "resourceDuplicateAdd" }, 409)
+        : prior(req, res, path, body);
+    const error = result(
+      await cli([
+        "ops",
+        "render",
+        "/draft.docx",
+        "--to",
+        "webp",
+        "--output",
+        "/",
+        "--json",
+      ]),
+      4,
+    );
+    expect(error.details.status).toBe(409);
+    expect(
+      JSON.parse(
+        Buffer.from(error.details.job_id.slice(5), "base64url").toString(),
+      ),
+    ).toEqual(JSON.parse(Buffer.from(handle.slice(5), "base64url").toString()));
+    expect(error.retryable).toBe(false);
+  });
+  it("preflights missing local directories and unavailable restore revisions", async () => {
+    setup();
+    expect(
+      result(
+        await cli([
+          "get",
+          "/draft.docx",
+          "missing/file",
+          "--dry-run",
+          "--json",
+        ]),
+        2,
+      ).code,
+    ).toBe("ENOENT");
+    const prior = handler;
+    handler = (req, res, path, body) =>
+      path.includes("/revisions/missing")
+        ? json(res, {}, 404)
+        : prior(req, res, path, body);
+    expect(
+      result(
+        await cli([
+          "version",
+          "restore",
+          "/draft.docx",
+          "--to",
+          "missing",
+          "--dry-run",
+          "--json",
+        ]),
+        4,
+      ).code,
+    ).toBe("OBJECT_NOT_FOUND");
+    expect(requests.every((r) => r.method === "GET")).toBe(true);
+  });
+  it("does not fetch raw bytes or print text during cat preflight", async () => {
+    setup();
+    const prior = handler;
+    handler = (req, res, path, body) =>
+      path.endsWith("/content")
+        ? json(res, {
+            url: base + "/raw-secret",
+            mediaType: "text/plain",
+            bytes: 123,
+          })
+        : prior(req, res, path, body);
+    const data = result(
+      await cli(["cat", "/draft.docx", "--dry-run", "--json"]),
+    );
+    expect(data.dry_run).toBe(true);
+    expect(data.text).toBeUndefined();
+    expect(requests.some((r) => r.path.includes("raw-secret"))).toBe(false);
+  });
+  it("guards root copies and nonrecursive nonempty directory removal", async () => {
+    setup();
+    expect(
+      result(
+        await cli(["cp", "/", "/Clone", "--recursive", "--dry-run", "--json"]),
+        2,
+      ).code,
+    ).toBe("INVALID_ARGUMENT");
+    const prior = handler;
+    handler = (req, res, path, body) =>
+      path.includes("/folders")
+        ? json(res, {
+            rows: path.includes("parentId=")
+              ? []
+              : [{ id: "d", name: "Outputs", rowVersion: 1 }],
+            count: path.includes("parentId=") ? 0 : 1,
+          })
+        : prior(req, res, path, body);
+    const error = result(
+      await cli(["rm", "/Outputs", "--permanent", "--dry-run", "--json"]),
+      4,
+    );
+    expect(error.code).toBe("DIRECTORY_NOT_EMPTY");
+    expect(error.message).toContain("--recursive");
+    expect(requests.every((r) => r.method === "GET")).toBe(true);
+  });
+});
+
+it("copies child paths, bounded stable keys and the selected source revision", async () => {
+  const keys: string[] = [];
+  handler = (req, res, path, body) => {
+    if (req.method === "POST" && path.endsWith("/folders"))
+      return json(res, { id: "copydir", name: "Copied" });
+    if (req.method === "POST" && path.endsWith("/files")) {
+      const params = JSON.parse(body.toString());
+      expect(params.source.sourceRevisionId).toBe("r1");
+      expect(params.refs[0].sourceRevisionId).toBe("r1");
+      expect(params.idempotencyKey.length).toBeLessThanOrEqual(128);
+      keys.push(params.idempotencyKey);
+      return json(res, { ...sampleFile, id: "copied", name: "inside.txt" });
+    }
+    if (path.includes("/folders"))
+      return json(res, {
+        rows: path.includes("parentId=")
+          ? []
+          : [{ id: "source", name: "Outputs", rowVersion: 1 }],
+        count: path.includes("parentId=") ? 0 : 1,
+      });
+    if (path.includes("/files"))
+      return json(res, {
+        rows: path.includes("folderId=source")
+          ? [{ ...sampleFile, name: "inside.txt" }]
+          : [],
+        count: path.includes("folderId=source") ? 1 : 0,
+      });
+  };
+  for (let i = 0; i < 2; i++) {
+    const data = result(
+      await cli([
+        "cp",
+        "/Outputs",
+        "/Copied",
+        "--recursive",
+        "--idempotency-key",
+        "k".repeat(128),
+        "--json",
+      ]),
+    );
+    expect(data.items[1].path).toBe("/Copied/inside.txt");
+    expect(data.items[1].result.id).toBe("copied");
+  }
+  expect(keys).toHaveLength(2);
+  expect(keys[0]).toBe(keys[1]);
 });

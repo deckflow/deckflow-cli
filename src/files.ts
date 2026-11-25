@@ -603,6 +603,8 @@ export async function download(
       "目标已存在，请选择其他路径或指定 --force",
       6,
     );
+  if (!(await lstat(dirname(target))).isDirectory())
+    throw usage("下载目标的父路径不是目录");
   if (ctx.opts.dryRun)
     return ctx.confirm(
       "下载",

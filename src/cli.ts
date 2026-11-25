@@ -316,8 +316,11 @@ try {
             error: {
               ...safe,
               retryable:
-                [429, 502, 503, 504].includes(status ?? 0) ||
-                safe.code === "BACKEND_UNAVAILABLE",
+                typeof (safe.details as { retryable?: boolean }).retryable ===
+                "boolean"
+                  ? (safe.details as { retryable: boolean }).retryable
+                  : [429, 502, 503, 504].includes(status ?? 0) ||
+                    safe.code === "BACKEND_UNAVAILABLE",
             },
             meta: { request_id: requestId },
           }) + "\n"
