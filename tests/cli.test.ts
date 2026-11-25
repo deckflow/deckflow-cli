@@ -2489,3 +2489,44 @@ it("issue 104: distinct upload credentials cannot overwrite or resume each other
     ).code,
   ).toBe("INVALID_ARGUMENT");
 });
+
+it("issue 72: conflicting uploads never overwrite an existing resumable request", async () => {
+  await writeFile(join(temp, "one"), "first");
+  await writeFile(join(temp, "two"), "second");
+  handler = (_, res, path) => {
+    if (path === "/signed") return res.writeHead(503).end();
+    if (path.includes("/upload-sessions"))
+      return json(res, {
+        id: "original",
+        status: "pending",
+        upload: { url: base + "/signed", method: "PUT", headers: {} },
+      });
+    if (path.endsWith("/spaces/ws")) return json(res, { regionId: "reg" });
+    if (path.includes("/regions"))
+      return json(res, { rows: [{ id: "reg", capabilities: {} }], count: 1 });
+    return json(res, { rows: [], count: 0 });
+  };
+  const first = result(
+    await cli(["put", "one", "/one", "--idempotency-key", "same", "--json"]),
+    5,
+  );
+  const path = join(
+    temp,
+    "deckflow",
+    "operations",
+    first.details.operationId + ".json",
+  );
+  const before = await readFile(path, "utf8");
+  expect(
+    result(
+      await cli(["put", "two", "/two", "--idempotency-key", "same", "--json"]),
+      4,
+    ).code,
+  ).toBe("IDEMPOTENCY_CONFLICT");
+  expect(await readFile(path, "utf8")).toBe(before);
+  expect(
+    requests.filter(
+      (r) => r.method === "POST" && r.path.endsWith("/upload-sessions"),
+    ),
+  ).toHaveLength(1);
+});

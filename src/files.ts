@@ -1,10 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
-import { link, lstat, readdir, rename, rm } from "node:fs/promises";
+import { link, lstat, mkdir, readdir, rename, rm } from "node:fs/promises";
 import { basename, dirname, join, relative, sep } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { Result } from "@deckflow/deckbase-sdk";
+import lockfile from "proper-lockfile";
 import {
   CliError,
   type ApiCall,
@@ -584,7 +585,40 @@ export async function upload(
         expectedCurrentRevisionId,
         maxParts,
       };
-      await saveJson(operationPath(ctx, id), state);
+      const statePath = operationPath(ctx, id);
+      await mkdir(dirname(statePath), { recursive: true, mode: 0o700 });
+      const release = await lockfile.lock(statePath, {
+        realpath: false,
+        retries: { retries: 30, minTimeout: 25, maxTimeout: 250 },
+      });
+      try {
+        const previous = await readJson<UploadState>(statePath);
+        const fields = [
+          "kind",
+          "endpoint",
+          "credentialScope",
+          "spaceId",
+          "path",
+          "bytes",
+          "sha256",
+          "folderId",
+          "fileId",
+          "name",
+          "ttlSeconds",
+          "expectedCurrentRevisionId",
+        ] as const;
+        if (previous && fields.some((key) => previous[key] !== state[key]))
+          throw new CliError(
+            "IDEMPOTENCY_CONFLICT",
+            "幂等键已用于不同的上传请求，原续传记录已保留",
+            6,
+            { operationId: id },
+          );
+        if (previous) Object.assign(state, previous);
+        else await saveJson(statePath, state);
+      } finally {
+        await release();
+      }
       const result = await tracked(
         ctx,
         id,
