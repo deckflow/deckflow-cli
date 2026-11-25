@@ -7,6 +7,9 @@ import assert from "node:assert/strict";
 
 const temp = await mkdtemp(join(tmpdir(), "deckflow-pack-"));
 const pnpm = process.env.npm_execpath;
+const expectedVersion = JSON.parse(
+  await readFile(new URL("../package.json", import.meta.url), "utf8"),
+).version;
 function npmCommand(command, args, cwd = temp) {
   // npm and pnpm provide JS entry points when run as package scripts.
   if (command === "pnpm" && pnpm) {
@@ -86,6 +89,11 @@ try {
   const metadata = JSON.parse(
     await readFile(join(installed, "package.json"), "utf8"),
   );
+  assert.equal(
+    metadata.version,
+    expectedVersion,
+    "Installed package version must match the release target",
+  );
   const readme = await readFile(join(installed, "README.md"), "utf8");
   assert.ok(
     readme.includes(
@@ -101,7 +109,11 @@ try {
     );
   npmCommand("npm", ["run", "bin:check"]);
   assert.match(await run(["--help"]), /Usage: deckflow/);
-  assert.match(await run(["--version"]), /^\d+\.\d+\.\d+/);
+  assert.equal(
+    (await run(["--version"])).trim(),
+    expectedVersion,
+    "CLI version must match the release target",
+  );
   await new Promise((ok) => server.listen(0, "127.0.0.1", ok));
   const result = await run(["ws", "info", "space", "--json"], {
     DECKFLOW_TOKEN: "pack-check",
