@@ -2444,3 +2444,48 @@ it("issue 47: same upload key in distinct API environments retains separate stat
   );
   expect(resumed.details.uploadSessionId).toBe("one");
 });
+
+it("issue 104: distinct upload credentials cannot overwrite or resume each other's state", async () => {
+  await writeFile(join(temp, "source"), "fixture");
+  handler = (req, res, path) => {
+    if (path === "/signed") return res.writeHead(503).end();
+    if (path.includes("/upload-sessions"))
+      return json(res, {
+        id: req.headers.authorization === "Bearer member-one" ? "one" : "two",
+        status: "pending",
+        upload: { url: base + "/signed", method: "PUT", headers: {} },
+      });
+    if (path.endsWith("/spaces/ws")) return json(res, { regionId: "reg" });
+    if (path.includes("/regions"))
+      return json(res, { rows: [{ id: "reg", capabilities: {} }], count: 1 });
+    return json(res, { rows: [], count: 0 });
+  };
+  const errors = [];
+  for (const token of ["member-one", "member-two"])
+    errors.push(
+      result(
+        await cli(
+          ["put", "source", "/target", "--idempotency-key", "same", "--json"],
+          { DECKFLOW_TOKEN: token },
+        ),
+        5,
+      ),
+    );
+  expect(errors[0].details.operationId).not.toBe(errors[1].details.operationId);
+  expect(
+    result(
+      await cli(
+        [
+          "put",
+          "LOCAL",
+          "DEST",
+          "--resume",
+          errors[0].details.operationId,
+          "--json",
+        ],
+        { DECKFLOW_TOKEN: "member-two" },
+      ),
+      2,
+    ).code,
+  ).toBe("INVALID_ARGUMENT");
+});

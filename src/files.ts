@@ -70,6 +70,7 @@ export async function folderPath(
 
 type UploadState = {
   kind: "upload";
+  credentialScope?: string;
   endpoint: string;
   spaceId: string;
   path: string;
@@ -115,6 +116,12 @@ async function loadOperation<K extends State["kind"]>(
     state.spaceId !== (await ctx.space())
   )
     throw usage("恢复操作需要使用原 API 地址和工作空间");
+  if (
+    state.kind === "upload" &&
+    state.credentialScope &&
+    state.credentialScope !== (await ctx.credentialScope())
+  )
+    throw usage("恢复操作需要使用原上传凭据");
   return state as Extract<State, { kind: K }>;
 }
 async function tracked<T>(
@@ -532,7 +539,12 @@ export async function upload(
     const digest = opts.idempotencyKey
       ? createHash("sha256")
           .update(
-            JSON.stringify([await ctx.apiUrl(), spaceId, opts.idempotencyKey]),
+            JSON.stringify([
+              await ctx.apiUrl(),
+              await ctx.credentialScope(),
+              spaceId,
+              opts.idempotencyKey,
+            ]),
           )
           .digest("hex")
           .slice(0, 32)
@@ -560,6 +572,7 @@ export async function upload(
         throw usage("文件超过区域上传上限");
       const state: UploadState = {
         kind: "upload",
+        credentialScope: await ctx.credentialScope(),
         endpoint: await ctx.apiUrl(),
         spaceId,
         path,

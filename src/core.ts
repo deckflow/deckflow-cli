@@ -13,7 +13,7 @@ import {
   rm,
   writeFile,
 } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { createInterface } from "node:readline/promises";
@@ -365,6 +365,15 @@ export class Context {
     const value = this.env.DECKFLOW_WEB_URL || (await this.config()).webUrl;
     if (!value) throw usage("请配置 DECKFLOW_WEB_URL 或 config set webUrl");
     return endpoint(value, "Web 地址");
+  }
+  async credentialScope() {
+    const url = await this.apiUrl();
+    const data = await this.credentials();
+    const token =
+      this.env.DECKFLOW_TOKEN ||
+      ((data.tokenApiRoot ?? data.apiRoot) === url ? data.token : undefined);
+    if (!token) throw new CliError("AUTH_REQUIRED", "请先登录", 3);
+    return createHash("sha256").update(token).digest("hex");
   }
   async client(credential?: string, apiUrl?: string): Promise<ApiCall> {
     const url = apiUrl ?? (await this.apiUrl());
