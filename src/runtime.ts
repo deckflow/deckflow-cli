@@ -1031,11 +1031,22 @@ export function commands(root: Command, register: Register) {
         };
         if (name === "ask") {
           if (ctx.opts.dryRun) return { dry_run: true, query, scope };
+          const idempotencyKey = o.idempotencyKey ?? randomUUID();
           const answered = await api("search.answer", {
             spaceId,
             scope,
             query,
-            idempotencyKey: o.idempotencyKey ?? randomUUID(),
+            idempotencyKey,
+          }).catch((error) => {
+            throw Object.assign(
+              error instanceof Error ? error : new Error("问答请求失败"),
+              {
+                operation: {
+                  idempotency_key: idempotencyKey,
+                  retry_hint: "使用相同查询、范围和此 --idempotency-key 重试",
+                },
+              },
+            );
           });
           const citations = [];
           for (const citation of answered.citations ?? []) {

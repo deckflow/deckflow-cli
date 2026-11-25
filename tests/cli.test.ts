@@ -1845,3 +1845,27 @@ it("issue 120: honors marked transient API errors within safe read retries", asy
   result(await cli(["ask", "query", "--json"]), 5);
   expect(requests).toHaveLength(1);
 });
+
+it("issue 63: exposes the exact answer idempotency key for safe replay", async () => {
+  const keys: string[] = [];
+  handler = (_, res, _path, body) => {
+    keys.push(JSON.parse(body.toString()).idempotencyKey);
+    return keys.length === 1
+      ? json(res, {}, 504)
+      : json(res, { answer: "done", citations: [] });
+  };
+  const error = result(await cli(["ask", "query", "--json"]), 5);
+  expect(error.details.idempotency_key).toBe(keys[0]);
+  expect(
+    result(
+      await cli([
+        "ask",
+        "query",
+        "--idempotency-key",
+        error.details.idempotency_key,
+        "--json",
+      ]),
+    ).answer,
+  ).toBe("done");
+  expect(keys[0]).toBe(keys[1]);
+});
