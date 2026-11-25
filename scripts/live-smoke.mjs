@@ -65,7 +65,10 @@ try {
         if (task.state === "failed") throw Error("测试资源清理失败");
         await sleep(1000);
       }
-      if (!done) throw Error("清理仍在运行，请查询测试目录删除任务");
+      if (!done)
+        throw Error(
+          `清理仍在运行：${folder}；使用 deckflow jobs status ${deleted.job_id} --ws ${space} 查询`,
+        );
     }
   } finally {
     await rm(temp, { recursive: true, force: true });

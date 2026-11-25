@@ -2249,3 +2249,28 @@ it("issue 90: refuses saving into a replaced output directory after waiting", as
     requests.some((r) => r.method === "POST" && r.path.endsWith("/files")),
   ).toBe(false);
 });
+
+async function smokeFixture(stub: string, fast = false) {
+  await mkdir(join(temp, "dist"));
+  await writeFile(join(temp, "dist", "cli.js"), stub);
+  let source = await readFile(resolve("scripts/live-smoke.mjs"), "utf8");
+  if (fast)
+    source = source.replace("await sleep(1000)", "await Promise.resolve()");
+  const script = join(temp, "smoke.mjs");
+  await writeFile(script, source);
+  return scriptRun(script, {
+    DECKFLOW_SMOKE_SPACE: "ws",
+    DECKFLOW_API_URL: base + "/api",
+    DECKFLOW_TOKEN: "synthetic",
+  });
+}
+it("issue 114: cleanup timeout includes the exact job handle and resource path", async () => {
+  const run = await smokeFixture(
+    `const a = process.argv[2];if(a === "put") {console.error("UPLOAD_FAIL");process.exit(5);}console.log(JSON.stringify({ok:true,data:a === "rm" ? {job_id:"dfj1.cleanup"} : a === "jobs" ? {state:"running"} : {}}));`,
+    true,
+  );
+  expect(run.code).not.toBe(0);
+  expect(run.stderr).toContain("dfj1.cleanup");
+  expect(run.stderr).toContain("/deckflow-smoke-");
+  expect(run.stderr).toContain("--ws ws");
+});
