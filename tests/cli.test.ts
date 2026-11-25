@@ -1699,3 +1699,23 @@ it("issue 89: rejects unsupported deletion and move idempotency before writes", 
   }
   expect(requests).toEqual([]);
 });
+
+it("issue 103: rejects restore conditions the backend cannot enforce atomically", async () => {
+  expect(
+    result(
+      await cli([
+        "version",
+        "restore",
+        "/file",
+        "--to",
+        "r0",
+        "--if-version",
+        "old",
+        "--yes",
+        "--json",
+      ]),
+      2,
+    ).code,
+  ).toBe("UNSUPPORTED_OPERATION");
+  expect(requests).toEqual([]);
+});

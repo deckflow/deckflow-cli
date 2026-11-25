@@ -1524,6 +1524,10 @@ export function commands(root: Command, register: Register) {
     "restore <file>",
     "恢复为新版本",
     async (ctx, [path], o) => {
+      if (o.ifVersion !== undefined)
+        throw unsupported(
+          "恢复时的完整对象版本条件；后端仅支持当前内容版本条件",
+        );
       const row = await file(ctx, path);
       guard(row, o);
       await (
