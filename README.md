@@ -4,7 +4,16 @@
 
 ## 安装
 
-安装和运行需要 Node.js 18.17.0 或更高版本。发布包位于 GitHub Packages。将下面两行添加到用户级 `.npmrc`，通过环境变量提供有包读取权限的 GitHub PAT classic。
+安装和运行需要 Node.js 18.17.0 或更高版本。公共 npm 是首选安装渠道：
+
+```sh
+npm install -g @deckflow/deckflow-cli --registry=https://registry.npmjs.org
+deckflow --version
+```
+
+如曾为 `@deckflow` 配置 GitHub Packages scope registry，使用公共 npm 前先移除该 scope 配置。旧包用户先参阅[迁移说明](docs/migration-v03.md)。也可以用 `npm install -g ./deckflow-deckflow-cli-0.2.0.tgz` 安装本地构建包。安装包自带 SDK 运行时代码。
+
+GitHub Packages 是独立的可选发布渠道。使用该渠道时，将下面两行添加到用户级 `.npmrc`，通过环境变量提供有包读取权限的 GitHub PAT classic，再执行安装命令：
 
 ```ini
 @deckflow:registry=https://npm.pkg.github.com
@@ -13,10 +22,7 @@
 
 ```sh
 npm install -g @deckflow/deckflow-cli
-deckflow --version
 ```
-
-也可以用 `npm install -g ./deckflow-deckflow-cli-0.2.0.tgz` 安装本地构建包。安装包自带 SDK 运行时代码。
 
 ## 快速开始
 

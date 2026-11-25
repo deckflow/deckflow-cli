@@ -1,6 +1,6 @@
 import { execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:http";
-import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, resolve, join } from "node:path";
 import assert from "node:assert/strict";
@@ -82,6 +82,23 @@ try {
     "--no-fund",
     archive,
   ]);
+  const installed = join(temp, "node_modules/@deckflow/deckflow-cli");
+  const metadata = JSON.parse(
+    await readFile(join(installed, "package.json"), "utf8"),
+  );
+  const readme = await readFile(join(installed, "README.md"), "utf8");
+  assert.ok(
+    readme.includes(
+      `npm install -g ${metadata.name} --registry=https://registry.npmjs.org`,
+    ),
+    "README must prefer the public npm package",
+  );
+  for (const match of readme.matchAll(/deckflow-deckflow-cli-([^\s`]+)\.tgz/g))
+    assert.equal(
+      match[1],
+      metadata.version,
+      "README archive version must match the package",
+    );
   npmCommand("npm", ["run", "bin:check"]);
   assert.match(await run(["--help"]), /Usage: deckflow/);
   assert.match(await run(["--version"]), /^\d+\.\d+\.\d+/);
