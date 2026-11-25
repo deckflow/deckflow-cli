@@ -418,14 +418,23 @@ export class Context {
       input: process.stdin,
       output: process.stderr,
     });
+    const cancellation = new AbortController();
+    const cancel = () => cancellation.abort();
+    rl.once("SIGINT", cancel);
     try {
       const suffix = cost ? "，费用未知" : "";
       const answer = await rl.question(
         `${label} ${JSON.stringify(impact)}${suffix}。继续？[y/N] `,
+        { signal: cancellation.signal },
       );
       if (!/^y(es)?$/i.test(answer.trim()))
         throw new CliError("CANCELLED", "已取消");
+    } catch (error) {
+      if (cancellation.signal.aborted)
+        throw new CliError("CANCELLED", "已取消", 2);
+      throw error;
     } finally {
+      rl.off("SIGINT", cancel);
       rl.close();
     }
   }
