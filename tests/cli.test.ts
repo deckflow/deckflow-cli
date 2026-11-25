@@ -575,6 +575,12 @@ describe("transfer recovery and integrity", () => {
   it("checks download integrity and leaves existing files untouched", async () => {
     let corrupt = false;
     handler = (req, res, path) => {
+      if (path.endsWith("/download"))
+        return json(res, {
+          downloadId: "audit",
+          revisionId: "r1",
+          url: base + "/api/content/ticket/f",
+        });
       if (path.endsWith("/files/f1")) return json(res, sampleFile);
       if (path.endsWith("/content"))
         return json(res, {
@@ -608,7 +614,9 @@ describe("transfer recovery and integrity", () => {
     );
     expect(await readFile(target, "utf8")).toBe("pdf");
     expect(
-      requests.filter((r) => r.path === "/api/spaces/ws/files/f1/content"),
+      requests.filter(
+        (r) => r.path === "/api/spaces/ws/files/f1/revisions/r1/content",
+      ),
     ).toHaveLength(2);
   });
 });
@@ -1650,6 +1658,12 @@ describe("issue regressions: selectors, previews and credentials", () => {
 it("marks temporary storage failures retryable and respects quiet upload progress", async () => {
   await writeFile(join(temp, "local"), "fixture");
   handler = (_, res, path) => {
+    if (path.endsWith("/download"))
+      return json(res, {
+        downloadId: "audit",
+        revisionId: "r1",
+        url: base + "/signed",
+      });
     if (path === "/signed") return res.writeHead(503).end();
     if (path.endsWith("/files/f1")) return json(res, sampleFile);
     if (path.endsWith("/content"))
@@ -1895,6 +1909,12 @@ it("issue 45: retains paid answers and raw evidence when citation lookup fails",
 
 it("issue 85: direct file permissions do not require readable parent directories", async () => {
   handler = (_, res, path) => {
+    if (path.endsWith("/download"))
+      return json(res, {
+        downloadId: "audit",
+        revisionId: "r1",
+        url: base + "/raw",
+      });
     if (path.includes("/folders")) return json(res, {}, 404);
     if (path === "/raw") return res.end("shared");
     if (path.endsWith("/content"))
@@ -2622,6 +2642,12 @@ it("issue 81: a concurrently committed multipart session returns its original re
 
 it("issue 122: SIGINT download cancellation removes partial temporary files", async () => {
   handler = async (_, res, path) => {
+    if (path.endsWith("/download"))
+      return json(res, {
+        downloadId: "audit",
+        revisionId: "r1",
+        url: base + "/slow",
+      });
     if (path === "/slow") {
       res.write(Buffer.alloc(65536));
       await new Promise<void>((done) => res.once("close", done));
@@ -2964,4 +2990,46 @@ it("issue 27: keyed file copies reach backend replay despite existing targets", 
       4,
     ).code,
   ).toBe("VERSION_CONFLICT");
+});
+
+it("issue 5: get uses the metered download grant and keeps integrity and quota errors", async () => {
+  let denied = false;
+  let rawReads = 0;
+  const grants: { revisionId: string; requestId: string }[] = [];
+  handler = (_, res, path, body) => {
+    if (path === "/raw") {
+      rawReads++;
+      return res.end("fixture");
+    }
+    if (path.endsWith("/download")) {
+      grants.push(JSON.parse(body.toString()));
+      return denied
+        ? json(res, { code: "EGRESS_CREDIT_EXHAUSTED" }, 402)
+        : json(res, {
+            downloadId: "audit1",
+            revisionId: "r1",
+            url: base + "/raw",
+          });
+    }
+    if (path.endsWith("/content"))
+      return json(res, {
+        revisionId: "r1",
+        mediaType: "text/plain",
+        bytes: 7,
+        sha256: hash("fixture"),
+      });
+    return json(res, { ...sampleFile, folderId: null });
+  };
+  const downloaded = result(await cli(["get", "id:f1", "allowed", "--json"]));
+  expect(downloaded.download_id).toBe("audit1");
+  expect(await readFile(join(temp, "allowed"), "utf8")).toBe("fixture");
+  expect(grants[0].revisionId).toBe("r1");
+  expect(grants[0].requestId).toMatch(/^[a-f0-9-]{36}$/);
+  denied = true;
+  const error = result(await cli(["get", "id:f1", "denied", "--json"]), 5);
+  expect(error.code).toBe("EGRESS_CREDIT_EXHAUSTED");
+  expect(rawReads).toBe(1);
+  await expect(stat(join(temp, "denied"))).rejects.toMatchObject({
+    code: "ENOENT",
+  });
 });

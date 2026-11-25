@@ -746,13 +746,27 @@ export async function download(
       { spaceId, fileId, revisionId: opts.revision, path: target },
       true,
     );
-  const content = opts.revision
-    ? await api("revision.content", {
-        spaceId,
-        fileId,
-        revisionId: opts.revision,
-      })
-    : await api("file.content", { spaceId, fileId });
+  const revisionId = opts.revision ?? file.currentRevisionId;
+  if (!revisionId)
+    throw new CliError("CONTENT_NOT_AVAILABLE", "文件尚无可下载版本", 6);
+  const content = await api("revision.content", {
+    spaceId,
+    fileId,
+    revisionId,
+  });
+  const requestId = randomUUID();
+  const grant = await api("file.download", {
+    spaceId,
+    fileId,
+    revisionId,
+    requestId,
+  });
+  if (grant.revisionId !== revisionId || !grant.url)
+    throw new CliError(
+      "INVALID_DOWNLOAD_RESPONSE",
+      "下载授权未返回对应版本的原始内容地址",
+      9,
+    );
   const timeout = AbortSignal.timeout(ctx.requestMs);
   const cancellation = new AbortController();
   const cancel = () =>
@@ -760,7 +774,7 @@ export async function download(
   const signal = AbortSignal.any([timeout, cancellation.signal]);
   process.on("SIGINT", cancel);
   try {
-    const response = await ctx.fetch(storageUrl(content.url), {
+    const response = await ctx.fetch(storageUrl(grant.url), {
       signal,
     });
     if (!response.ok || !response.body) {
@@ -813,7 +827,14 @@ export async function download(
             throw error;
           await copyFile(temp, target, constants.COPYFILE_EXCL);
         });
-      return { fileId, revisionId: content.revisionId, path: target, bytes };
+      return {
+        fileId,
+        revisionId: content.revisionId,
+        download_id: grant.downloadId,
+        download_request_id: requestId,
+        path: target,
+        bytes,
+      };
     } finally {
       await rm(temp, { force: true });
     }
