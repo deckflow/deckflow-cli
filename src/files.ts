@@ -24,7 +24,7 @@ export function taskFailure(status: string, code?: string | null) {
     "TASK_FAILED",
     `任务状态：${status}`,
     status === "expired" ? 6 : 9,
-    { serverCode: code },
+    { serverCode: code, state: status },
   );
 }
 
@@ -133,7 +133,16 @@ async function tracked<T>(
     throw Object.assign(error, {
       operation: {
         operationId: id,
-        resume: `${resume} --resume ${id}`,
+        ...(error instanceof CliError &&
+        error.code === "TASK_FAILED" &&
+        ["expired", "aborted", "cancelled"].includes(
+          String((error.details as { state?: string })?.state),
+        )
+          ? {
+              restart_required: true,
+              restart_hint: "重新发起上传，不要指定 --resume",
+            }
+          : { resume: `${resume} --resume ${id}` }),
         ...details(),
       },
     });

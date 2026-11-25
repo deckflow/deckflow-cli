@@ -2324,3 +2324,35 @@ it("issue 65: smoke checks uncertain creation and cleans the committed directory
     "jobs",
   ]);
 });
+
+it("issue 62: expired upload sessions require restarting instead of resuming", async () => {
+  const id = "12345678-1234-1234-1234-123456789abc";
+  await writeFile(join(temp, "source"), "fixture");
+  await mkdir(join(temp, "deckflow", "operations"), { recursive: true });
+  await writeFile(
+    join(temp, "deckflow", "operations", id + ".json"),
+    JSON.stringify({
+      kind: "upload",
+      endpoint: base + "/api",
+      spaceId: "ws",
+      path: join(temp, "source"),
+      bytes: 7,
+      sha256: hash("fixture"),
+      expectedCurrentRevisionId: null,
+      maxParts: 10000,
+      sessionId: "expired",
+    }),
+  );
+  handler = (_, res) =>
+    json(res, {
+      id: "expired",
+      status: "expired",
+      errorCode: "SESSION_EXPIRED",
+    });
+  const error = result(
+    await cli(["put", "LOCAL", "DEST", "--resume", id, "--json"]),
+    4,
+  );
+  expect(error.details.restart_required).toBe(true);
+  expect(error.details.resume).toBeUndefined();
+});
