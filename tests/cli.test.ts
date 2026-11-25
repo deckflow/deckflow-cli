@@ -1977,3 +1977,20 @@ it("issue 100: version pagination requests one bounded backend page", async () =
   expect(second.items[0].id).toBe("r1");
   expect(requests.filter((r) => r.path.includes("/revisions"))).toHaveLength(2);
 });
+
+it("issue 99: current preview lookup never scans unrelated historical revisions", async () => {
+  handler = (_, res, path) => {
+    if (path.includes("/conversions")) return json(res, { items: [] });
+    if (path.includes("/folders")) return json(res, { rows: [], count: 0 });
+    if (path.endsWith("/content"))
+      return json(res, { mediaType: "application/pdf", revisionId: "r1" });
+    return json(res, { rows: [sampleFile], count: 1 });
+  };
+  expect(
+    result(await cli(["view", "/" + sampleFile.name, "--json"]), 2).code,
+  ).toBe("PREVIEW_NOT_AVAILABLE");
+  expect(requests.filter((r) => r.path.includes("/conversions"))).toHaveLength(
+    1,
+  );
+  expect(requests.some((r) => /\/revisions(?:\?|$)/.test(r.path))).toBe(false);
+});

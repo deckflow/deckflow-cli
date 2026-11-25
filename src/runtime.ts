@@ -825,36 +825,7 @@ export function commands(root: Command, register: Register) {
           t.status === "succeeded" &&
           t.outputs.length > 0,
       );
-      if (!task) {
-        for (let offset = 0; ;) {
-          const revisions = await api("revision.list", {
-            spaceId,
-            fileId: row.id,
-            _startIndex: offset,
-            _maxResults: 100,
-          });
-          for (const revision of revisions.rows) {
-            if (revision.id === row.currentRevisionId) continue;
-            const previous = await api("conversion.list", {
-              spaceId,
-              fileId: row.id,
-              revisionId: revision.id,
-            });
-            if (
-              previous.items.some(
-                (t) =>
-                  t.target === "screenshots" &&
-                  t.status === "succeeded" &&
-                  t.outputs.length > 0,
-              )
-            )
-              fail("PREVIEW_OUTDATED", "只有旧版本预览");
-          }
-          offset += revisions.rows.length;
-          if (!revisions.rows.length || offset >= revisions.count) break;
-        }
-        fail("PREVIEW_NOT_AVAILABLE", "没有当前版本预览");
-      }
+      if (!task) fail("PREVIEW_NOT_AVAILABLE", "没有当前版本预览");
       const pages = task!.outputs.map((x) => ({
         page: x.ordinal + 1,
         artifact_id: x.artifactId,
