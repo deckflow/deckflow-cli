@@ -224,6 +224,7 @@ export class Context {
   readonly canOpen: boolean;
   readonly requestMs: number;
   readonly waitMs: number;
+  private readonly dryRunUUID = randomUUID();
   constructor(
     public opts: Globals,
     private deps: {
@@ -279,6 +280,33 @@ export class Context {
     } finally {
       await rm(temp, { force: true });
     }
+  }
+  private async clientUUID() {
+    if (!this.opts.dryRun) await this.initialize();
+    let value: string;
+    try {
+      value = (
+        await readFile(join(dirname(this.credentialsPath), "auth-uuid"), "utf8")
+      ).trim();
+    } catch (error) {
+      if (
+        this.opts.dryRun &&
+        (error as NodeJS.ErrnoException).code === "ENOENT"
+      )
+        return this.dryRunUUID;
+      throw error;
+    }
+    if (
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        value,
+      )
+    )
+      throw new CliError(
+        "INVALID_CLIENT_UUID",
+        "客户端标识文件 ~/.deckflow/auth-uuid 不是有效的 UUID v4",
+        2,
+      );
+    return value;
   }
   private async credentials() {
     const data = await readJson<unknown>(this.credentialsPath);
@@ -388,29 +416,37 @@ export class Context {
         "请先 auth login 或设置 DECKFLOW_TOKEN",
         3,
       );
-    const client = createClient(url, token, async (input, init) => {
-      const response = await this.fetch(input, { ...init, redirect: "manual" });
-      if (response.status >= 300 && response.status < 400) {
-        await response.body?.cancel();
-        throw new CliError(
-          "INVALID_API_ENDPOINT",
-          "API 地址返回重定向，请更新配置中的 API 基础地址",
-          2,
-          { status: response.status },
-        );
-      }
-      if (
-        !response.ok &&
-        response.headers.get("X-Transient-Network-Error") === "1"
-      ) {
-        const error = await response.json().catch(() => ({}));
-        throw Object.assign(new Error("API 暂态网络故障"), error, {
-          status: response.status,
-          transientNetwork: true,
+    const client = createClient(
+      url,
+      token,
+      async (input, init) => {
+        const response = await this.fetch(input, {
+          ...init,
+          redirect: "manual",
         });
-      }
-      return response;
-    });
+        if (response.status >= 300 && response.status < 400) {
+          await response.body?.cancel();
+          throw new CliError(
+            "INVALID_API_ENDPOINT",
+            "API 地址返回重定向，请更新配置中的 API 基础地址",
+            2,
+            { status: response.status },
+          );
+        }
+        if (
+          !response.ok &&
+          response.headers.get("X-Transient-Network-Error") === "1"
+        ) {
+          const error = await response.json().catch(() => ({}));
+          throw Object.assign(new Error("API 暂态网络故障"), error, {
+            status: response.status,
+            transientNetwork: true,
+          });
+        }
+        return response;
+      },
+      await this.clientUUID(),
+    );
     return async <M extends Method>(
       method: M,
       params: Params<M>,
