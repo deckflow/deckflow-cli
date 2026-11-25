@@ -1686,3 +1686,16 @@ it("marks temporary storage failures retryable and respects quiet upload progres
   expect(download.details.status).toBe(503);
   expect(download.retryable).toBe(true);
 });
+
+it("issue 89: rejects unsupported deletion and move idempotency before writes", async () => {
+  for (const args of [
+    ["rm", "/x", "--permanent", "--yes"],
+    ["mv", "/x", "/y"],
+  ]) {
+    expect(
+      result(await cli([...args, "--idempotency-key", "same", "--json"]), 2)
+        .code,
+    ).toBe("UNSUPPORTED_OPERATION");
+  }
+  expect(requests).toEqual([]);
+});

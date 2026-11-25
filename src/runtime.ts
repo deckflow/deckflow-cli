@@ -538,6 +538,8 @@ export function commands(root: Command, register: Register) {
     "mv <source> <destination>",
     "移动或重命名",
     async (ctx, [source, path], o) => {
+      if (o.idempotencyKey !== undefined)
+        throw unsupported("移动的调用方幂等键");
       const row = await resolveObject(ctx, source);
       if (row.id === "root") throw usage("不能移动根目录");
       guard(row, o);
@@ -699,6 +701,8 @@ export function commands(root: Command, register: Register) {
     "永久删除或报告软删除缺失",
     async (ctx, [path], o) => {
       remote(path);
+      if (o.idempotencyKey !== undefined)
+        throw unsupported("永久删除的调用方幂等键");
       if (path === "/") throw usage("禁止删除根目录");
       if (!o.permanent) throw unsupported("回收站软删除");
       const row = await resolveObject(ctx, path);
