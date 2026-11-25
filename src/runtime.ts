@@ -444,35 +444,65 @@ export function commands(root: Command, register: Register) {
       path = remote(path).normalize("NFC");
       if (path.startsWith("id:")) throw usage("创建需要绝对路径");
       let parentId: string | null = null;
-      let current = "";
+      let current = "",
+        missing = false;
+      let result: ObjectRow | undefined;
+      const api = await ctx.client(),
+        ws = await ctx.space();
       const parts = path.slice(1).split("/");
-      if (parts.some((part) => !part || Array.from(part).length > 255))
-        throw usage("目录名须为 1–255 个字符");
+      if (
+        parts.some(
+          (part) =>
+            !part.trim() ||
+            Array.from(part).length > 255 ||
+            part.includes("\x7f"),
+        )
+      )
+        throw usage("目录名须为 1–255 个有效字符");
       for (let i = 0; i < parts.length; i++) {
         current += "/" + parts[i];
-        let row = await maybe(ctx, current);
+        const hits: ObjectRow[] = missing
+          ? []
+          : (await all(api, ws, parentId)).filter(
+              (row) => row.name === parts[i],
+            );
+        if (hits.length > 1) fail("TYPE_MISMATCH", "路径存在歧义", 6);
+        let row: ObjectRow | undefined = hits[0];
         if (row) {
           if (row.kind !== "directory") fail("NOT_A_DIRECTORY", "父级不是目录");
           if (i === parts.length - 1 && !o.parents)
             fail("OBJECT_EXISTS", "目标存在", 6);
-          parentId = row.id;
         } else {
           if (i < parts.length - 1 && !o.parents)
             fail("OBJECT_NOT_FOUND", "父目录不存在", 5);
-          if (ctx.opts.dryRun) continue;
-          row = (await (
-            await ctx.client()
-          )("folder.add", {
-            spaceId: await ctx.space(),
+          if (ctx.opts.dryRun) {
+            missing = true;
+            continue;
+          }
+          const created = await api("folder.add", {
+            spaceId: ws,
             parentId,
             name: parts[i],
-          })) as unknown as ObjectRow;
-          parentId = row.id;
+          });
+          row = {
+            ...created,
+            kind: "directory",
+            path: current,
+            workspace_id: ws,
+          } as ObjectRow;
         }
+        parentId = row.id;
+        result = { ...row, kind: "directory", path: current, workspace_id: ws };
       }
-      return ctx.opts.dryRun
-        ? { dry_run: true, path }
-        : resolveObject(ctx, path);
+      if (ctx.opts.dryRun) return { dry_run: true, path };
+      result!.version = Buffer.from(
+        JSON.stringify({
+          id: result!.id,
+          row: result!.rowVersion,
+          revision: null,
+        }),
+      ).toString("base64url");
+      return result;
     },
     (c) => c.option("--parents"),
   );

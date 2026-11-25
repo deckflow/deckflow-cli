@@ -2016,3 +2016,32 @@ it("issue 94: returns the committed move response without a fallible readback", 
     requests.some((r) => r.method === "GET" && r.path.endsWith("/files/f1")),
   ).toBe(false);
 });
+
+it("issue 87: nested mkdir traverses each parent only once", async () => {
+  const folders: {
+    id: string;
+    parentId: string | null;
+    name: string;
+    rowVersion: number;
+  }[] = [];
+  handler = (req, res, path, body) => {
+    if (req.method === "POST") {
+      const p = JSON.parse(body.toString());
+      const row = { ...p, id: "d" + folders.length, rowVersion: 1 };
+      folders.push(row);
+      return json(res, row);
+    }
+    if (path.includes("/folders")) {
+      const parent = new URL(base + path).searchParams.get("parentId");
+      const rows = folders.filter((f) => f.parentId === parent);
+      return json(res, { rows, count: rows.length });
+    }
+    return json(res, { rows: [], count: 0 });
+  };
+  const path = "/" + Array.from({ length: 12 }, (_, i) => "d" + i).join("/");
+  expect(result(await cli(["mkdir", path, "--parents", "--json"])).path).toBe(
+    path,
+  );
+  expect(folders).toHaveLength(12);
+  expect(requests.filter((r) => r.method === "GET")).toHaveLength(24);
+});
