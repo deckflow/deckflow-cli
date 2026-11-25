@@ -4,6 +4,7 @@ import { createClient, type Method, type Params } from "@deckflow/deckbase-sdk";
 import { setTimeout as delay } from "node:timers/promises";
 import openBrowser from "open";
 import { CliError, Context, usage } from "./core.js";
+import { callbackPage, callbackPageCsp } from "./auth-page.js";
 
 export function authorizationMode(value?: string) {
   const mode = value?.toLowerCase();
@@ -89,7 +90,9 @@ export async function browserLogin(
       return;
     }
     received = true;
-    res.end("已收到授权回调，请返回终端查看登录结果。此页面可以关闭。");
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Content-Security-Policy", callbackPageCsp);
+    res.end(callbackPage);
     notify(true);
   });
   const client = createClient(apiUrl, "", async (input, init) => {
