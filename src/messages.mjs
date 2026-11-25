@@ -335,6 +335,7 @@ export default {
   "转换任务没有唯一 PDF 产物":
     "Conversion job did not produce exactly one PDF artifact",
   预期生成一个发布安装包: "Expected exactly one release archive",
+  "发布 tag 已存在：{0}": "Release tag already exists: {0}",
   "预期一个与 package.json 版本一致的安装包":
     "Expected one archive matching the package.json version",
   "发布 tag 必须与 package.json 版本一致":

@@ -13,7 +13,11 @@ const { values } = parseArgs({
   },
 });
 const cwd = fileURLToPath(new URL("../", import.meta.url));
-const { name } = JSON.parse(readFileSync(join(cwd, "package.json"), "utf8"));
+const { name, version } = JSON.parse(
+  readFileSync(join(cwd, "package.json"), "utf8"),
+);
+const tag = `v${version}`;
+const shouldTag = !values.github && !values["dry-run"];
 const scope = name.split("/")[0];
 const registry = values.github
   ? "https://npm.pkg.github.com"
@@ -30,6 +34,14 @@ const runPnpm = (args) =>
     : execFileSync("pnpm", args, options);
 
 runPnpm(["typecheck"]);
+if (
+  shouldTag &&
+  execFileSync("git", ["tag", "--list", tag], {
+    cwd,
+    encoding: "utf8",
+  }).trim()
+)
+  throw Error(t("发布 tag 已存在：{0}", [tag]));
 runPnpm(["build"]);
 const temp = mkdtempSync(join(tmpdir(), "deckflow-release-"));
 try {
@@ -47,6 +59,7 @@ try {
   if (process.platform === "win32")
     execFileSync(process.execPath, [npmCli, ...args], options);
   else execFileSync("npm", args, options);
+  if (shouldTag) execFileSync("git", ["tag", tag], options);
 } finally {
   rmSync(temp, { recursive: true, force: true });
 }
