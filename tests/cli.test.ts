@@ -1937,3 +1937,43 @@ it("issue 36: info metadata belongs to the same immutable revision snapshot", as
     false,
   );
 });
+
+it("issue 100: version pagination requests one bounded backend page", async () => {
+  handler = (_, res, path) => {
+    if (path.includes("/revisions")) {
+      const params = new URL(base + path).searchParams;
+      expect(params.get("_maxResults")).toBe("1");
+      return json(res, {
+        rows: [{ id: "r" + params.get("_startIndex") }],
+        count: 1201,
+      });
+    }
+    if (path.includes("/folders")) return json(res, { rows: [], count: 0 });
+    return json(res, { rows: [sampleFile], count: 1 });
+  };
+  const first = result(
+    await cli([
+      "version",
+      "ls",
+      "/" + sampleFile.name,
+      "--limit",
+      "1",
+      "--json",
+    ]),
+  );
+  expect(first.items[0].id).toBe("r0");
+  const second = result(
+    await cli([
+      "version",
+      "ls",
+      "/" + sampleFile.name,
+      "--limit",
+      "1",
+      "--cursor",
+      first.next_cursor,
+      "--json",
+    ]),
+  );
+  expect(second.items[0].id).toBe("r1");
+  expect(requests.filter((r) => r.path.includes("/revisions"))).toHaveLength(2);
+});

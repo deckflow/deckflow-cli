@@ -245,7 +245,7 @@ function paginate(c: Command) {
     .option("--limit <n>", "每页条数", "50")
     .option("--cursor <token>", "继续游标");
 }
-function listing(items: unknown[], o: Options, key: string) {
+function pagination(o: Options, key: string) {
   const limit = integer(o.limit ?? "50", 1, 100);
   let offset = 0;
   if (o.cursor) {
@@ -257,6 +257,10 @@ function listing(items: unknown[], o: Options, key: string) {
       throw usage("无效或范围不符的 cursor");
     }
   }
+  return { limit, offset };
+}
+function listing(items: unknown[], o: Options, key: string) {
+  const { limit, offset } = pagination(o, key);
   return {
     items: items.slice(offset, offset + limit),
     next_cursor:
@@ -1559,21 +1563,31 @@ export function commands(root: Command, register: Register) {
     "列出历史版本",
     async (ctx, [path], o) => {
       const row = await file(ctx, path);
-      const items: unknown[] = [];
-      for (let offset = 0; ;) {
-        const raw = await (
-          await ctx.client()
-        )("revision.list", {
-          spaceId: await ctx.space(),
-          fileId: row.id,
-          _maxResults: 100,
-          _startIndex: offset,
-        });
-        items.push(...raw.rows);
-        offset += raw.rows.length;
-        if (!raw.rows.length || offset >= raw.count) break;
-      }
-      return listing(items, o, JSON.stringify([await ctx.space(), row.id]));
+      const key = JSON.stringify([
+        await ctx.apiUrl(),
+        await ctx.space(),
+        row.id,
+        "versions",
+      ]);
+      const { limit, offset } = pagination(o, key);
+      const raw = await (
+        await ctx.client()
+      )("revision.list", {
+        spaceId: await ctx.space(),
+        fileId: row.id,
+        _maxResults: limit,
+        _startIndex: offset,
+      });
+      const next = offset + raw.rows.length;
+      return {
+        items: raw.rows,
+        next_cursor:
+          raw.rows.length && next < raw.count
+            ? Buffer.from(JSON.stringify({ key, offset: next })).toString(
+                "base64url",
+              )
+            : null,
+      };
     },
     paginate,
   );
