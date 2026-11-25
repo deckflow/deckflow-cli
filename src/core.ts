@@ -17,6 +17,7 @@ import { randomUUID } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { createInterface } from "node:readline/promises";
+import { emitKeypressEvents, type Key } from "node:readline";
 import { setTimeout as sleep } from "node:timers/promises";
 import lockfile from "proper-lockfile";
 import { methods } from "./sdk-methods.generated.js";
@@ -141,27 +142,33 @@ export async function hiddenToken(): Promise<string> {
   const input = process.stdin;
   if (!input.isTTY) throw usage("请使用 --token-stdin 或 DECKFLOW_TOKEN");
   const previous = input.isRaw;
-  process.stderr.write("DeckBase API Key / Token: ");
+  emitKeypressEvents(input);
   input.setRawMode(true);
   input.resume();
   try {
     return await new Promise<string>((done, fail) => {
       let value = "";
       function finish(error?: Error) {
-        input.off("data", onData);
+        input.off("keypress", onKey);
         if (error) fail(error);
         else done(value);
       }
-      function onData(chunk: Buffer | string) {
-        for (const char of chunk.toString()) {
-          if (char === "\u0003" || char === "\u0004")
-            return finish(usage("已取消"));
-          if (char === "\n" || char === "\r") return finish();
-          if (char === "\x7f" || char === "\b") value = value.slice(0, -1);
-          else if (char >= " " && value.length < 8192) value += char;
-        }
+      function onKey(text: string | undefined, key: Key) {
+        if (key.ctrl && ["c", "d"].includes(key.name ?? ""))
+          return finish(usage("已取消"));
+        if (["return", "enter"].includes(key.name ?? "")) return finish();
+        if (key.name === "backspace")
+          value = Array.from(value).slice(0, -1).join("");
+        else if (
+          text &&
+          !key.ctrl &&
+          !key.meta &&
+          !/[\x00-\x1f\x7f]/.test(text)
+        )
+          value = (value + text).slice(0, 8192);
       }
-      input.on("data", onData);
+      input.on("keypress", onKey);
+      process.stderr.write("DeckBase API Key / Token: ");
     });
   } finally {
     input.setRawMode(previous);
