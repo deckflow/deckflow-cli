@@ -525,11 +525,26 @@ export async function upload(
     const preview = await ctx.confirm("上传", impact, true);
     if (preview) return preview;
   }
-  const [space, regions] = await Promise.all([
-    api("space.detail", { id: spaceId }),
-    api("region.list", {}),
-  ]);
-  const caps = regions.rows.find((r) => r.id === space.regionId)?.capabilities;
+  const space = await api("space.detail", { id: spaceId });
+  let caps: Record<string, unknown> | undefined;
+  for (let offset = 0; ;) {
+    const regions = await api("region.list", {
+      _startIndex: offset,
+      _maxResults: 100,
+    });
+    const region = regions.rows.find((r) => r.id === space.regionId);
+    if (region) {
+      caps = { ...region.capabilities };
+      break;
+    }
+    offset += regions.rows.length;
+    if (!regions.rows.length || offset >= regions.count)
+      throw new CliError(
+        "REGION_CAPABILITIES_UNAVAILABLE",
+        "无法确定工作空间地区的上传限制",
+        9,
+      );
+  }
   const maxParts = Number(caps?.maxParts ?? 10000);
   if (!Number.isSafeInteger(maxParts) || maxParts < 1)
     throw new CliError("INVALID_UPLOAD_LIMIT", "区域分片配置无效", 9);

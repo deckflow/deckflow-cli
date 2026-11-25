@@ -372,7 +372,7 @@ describe("transfer regressions", () => {
       )
         return json(res, { rows: [], count: 0 });
       if (path === "/api/spaces/ws") return json(res, { regionId: "region" });
-      if (path === "/api/regions")
+      if (path.startsWith("/api/regions"))
         return json(res, {
           rows: [{ id: "region", capabilities: {} }],
           count: 1,
@@ -501,7 +501,7 @@ describe("transfer recovery and integrity", () => {
         return json(res, { rows: [], count: 0 });
       const session = { id: "up", status: "pending", multipart: true };
       if (path === "/api/spaces/ws") return json(res, { regionId: "region" });
-      if (path === "/api/regions")
+      if (path.startsWith("/api/regions"))
         return json(res, {
           rows: [{ id: "region", capabilities: { maxParts: 2 } }],
           count: 1,
@@ -1024,7 +1024,7 @@ describe("issue regressions: upload inputs", () => {
       )
         return json(res, { rows: [], count: 0 });
       if (path === "/api/spaces/ws") return json(res, { regionId: "region" });
-      if (path === "/api/regions")
+      if (path.startsWith("/api/regions"))
         return json(res, {
           rows: [{ id: "region", capabilities: {} }],
           count: 1,
@@ -2529,4 +2529,32 @@ it("issue 72: conflicting uploads never overwrite an existing resumable request"
       (r) => r.method === "POST" && r.path.endsWith("/upload-sessions"),
     ),
   ).toHaveLength(1);
+});
+
+it("issue 78: discovers paginated upload regions before enforcing their limits", async () => {
+  await writeFile(join(temp, "source"), "too large");
+  handler = (_, res, path) => {
+    if (path.endsWith("/spaces/ws")) return json(res, { regionId: "target" });
+    if (path.includes("/regions")) {
+      const offset = Number(
+        new URL(base + path).searchParams.get("_startIndex"),
+      );
+      return json(res, {
+        rows:
+          offset === 0
+            ? Array.from({ length: 100 }, (_, i) => ({
+                id: "r" + i,
+                capabilities: {},
+              }))
+            : [{ id: "target", capabilities: { maxUploadBytes: 4 } }],
+        count: 101,
+      });
+    }
+    return json(res, { rows: [], count: 0 });
+  };
+  expect(
+    result(await cli(["put", "source", "/target", "--json"]), 2).code,
+  ).toBe("INVALID_ARGUMENT");
+  expect(requests.filter((r) => r.path.includes("/regions"))).toHaveLength(2);
+  expect(requests.some((r) => r.method === "POST")).toBe(false);
 });
