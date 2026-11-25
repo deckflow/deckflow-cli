@@ -1827,3 +1827,21 @@ it("issue 110: API redirects are actionable configuration errors without retries
   expect(error.retryable).toBe(false);
   expect(requests).toHaveLength(1);
 });
+
+it("issue 120: honors marked transient API errors within safe read retries", async () => {
+  let recover = true;
+  handler = (_, res) => {
+    if (recover && requests.length === 2) return json(res, { id: "ws" });
+    res.setHeader("X-Transient-Network-Error", "1");
+    return json(res, { code: "temporaryFailure" }, 500);
+  };
+  expect(result(await cli(["ws", "info", "--json"])).id).toBe("ws");
+  expect(requests).toHaveLength(2);
+  recover = false;
+  requests = [];
+  expect(result(await cli(["ws", "info", "--json"]), 5).retryable).toBe(true);
+  expect(requests).toHaveLength(2);
+  requests = [];
+  result(await cli(["ask", "query", "--json"]), 5);
+  expect(requests).toHaveLength(1);
+});

@@ -390,6 +390,16 @@ export class Context {
           { status: response.status },
         );
       }
+      if (
+        !response.ok &&
+        response.headers.get("X-Transient-Network-Error") === "1"
+      ) {
+        const error = await response.json().catch(() => ({}));
+        throw Object.assign(new Error("API 暂态网络故障"), error, {
+          status: response.status,
+          transientNetwork: true,
+        });
+      }
       return response;
     });
     return async <M extends Method>(
@@ -405,8 +415,14 @@ export class Context {
       try {
         return await client.call(method, params, { signal: requestSignal });
       } catch (error) {
-        const e = error as { status?: number; name?: string; cause?: unknown };
+        const e = error as {
+          status?: number;
+          name?: string;
+          cause?: unknown;
+          transientNetwork?: boolean;
+        };
         const transient =
+          e.transientNetwork === true ||
           [502, 503, 504].includes(e.status ?? 0) ||
           (e.name === "TypeError" && e.cause);
         if (!isRead(method) || !transient || requestSignal.aborted) throw error;

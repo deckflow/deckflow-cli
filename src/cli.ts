@@ -54,6 +54,7 @@ function failure(error: unknown) {
         operation?: unknown;
         cause?: unknown;
         data?: unknown;
+        transientNetwork?: boolean;
       })
     | null;
   const details = e?.operation as Record<string, unknown> | undefined;
@@ -121,6 +122,7 @@ function failure(error: unknown) {
           status,
           server_code: e?.code,
           server_reason: e?.data ?? e?.message,
+          ...(e?.transientNetwork ? { retryable: true } : {}),
           ...details,
         },
       },
