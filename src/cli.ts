@@ -53,6 +53,7 @@ function failure(error: unknown) {
         status?: number;
         operation?: unknown;
         cause?: unknown;
+        data?: unknown;
       })
     | null;
   const details = e?.operation as Record<string, unknown> | undefined;
@@ -105,7 +106,19 @@ function failure(error: unknown) {
         9: "DeckBase 请求失败",
       } as Record<number, string>
     )[exit];
-    return { exit, body: { code, message, details: { status, ...details } } };
+    return {
+      exit,
+      body: {
+        code,
+        message,
+        details: {
+          status,
+          server_code: e?.code,
+          server_reason: e?.data ?? e?.message,
+          ...details,
+        },
+      },
+    };
   }
   if (
     ["AbortError", "TimeoutError"].includes(e?.name ?? "") ||

@@ -1785,3 +1785,23 @@ it("issue 67: failed release typechecking prevents packing or publishing", async
   expect(run.stdout).not.toContain("CHECK build");
   expect(run.stdout).not.toContain("CHECK pack");
 });
+
+it("issue 2: preserves safe backend reasons for disabled content search", async () => {
+  handler = (_, res) =>
+    json(
+      res,
+      {
+        code: "notAllowed",
+        message: "No access",
+        data: ["Content search is not enabled"],
+      },
+      403,
+    );
+  for (const command of ["grep", "seek", "ask"]) {
+    const error = result(await cli([command, "query", "--json"]), 3);
+    expect(error.details.server_code).toBe("notAllowed");
+    expect(error.details.server_reason).toEqual([
+      "Content search is not enabled",
+    ]);
+  }
+});
