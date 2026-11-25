@@ -10,6 +10,8 @@ import {
   Context,
   integer,
   poll,
+  readJson,
+  saveJson,
   unsupported,
   usage,
   type ApiCall,
@@ -894,12 +896,41 @@ export function commands(root: Command, register: Register) {
         throw unsupported("永久删除的调用方幂等键");
       if (path === "/") throw usage("禁止删除根目录");
       if (!o.permanent) throw unsupported("回收站软删除");
-      const row = await resolveObject(ctx, path);
+      const statePath = async (id: string) =>
+        join(
+          ctx.stateDir,
+          "deletions",
+          createHash("sha256")
+            .update(
+              JSON.stringify([
+                await ctx.apiUrl(),
+                await ctx.credentialScope(),
+                await ctx.space(),
+                id,
+              ]),
+            )
+            .digest("hex") + ".json",
+        );
+      const cached = path.startsWith("id:")
+        ? await readJson<{ row: ObjectRow; recursive: boolean }>(
+            await statePath(path.slice(3)),
+          )
+        : undefined;
+      if (
+        cached &&
+        (cached.row.id !== path.slice(3) ||
+          !["file", "directory"].includes(cached.row.kind) ||
+          typeof cached.row.rowVersion !== "number" ||
+          cached.recursive !== Boolean(o.recursive))
+      )
+        throw usage("删除重放必须使用原对象及递归参数");
+      const row = cached?.row ?? (await resolveObject(ctx, path));
       if (row.id === "root") throw usage("禁止删除根目录");
       guard(row, o);
       const api = await ctx.client(),
         spaceId = await ctx.space();
       if (
+        !cached &&
         row.kind === "directory" &&
         !o.recursive &&
         (await all(api, spaceId, row.id)).length
@@ -910,6 +941,11 @@ export function commands(root: Command, register: Register) {
         path: row.path,
       });
       if (preview) return preview;
+      if (!cached)
+        await saveJson(await statePath(row.id), {
+          row,
+          recursive: Boolean(o.recursive),
+        });
       const result =
         row.kind === "file"
           ? await api("file.remove", {

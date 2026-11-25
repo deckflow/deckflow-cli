@@ -2817,3 +2817,24 @@ it("issue 21: render persistence safely replays saved pages and resumes missing 
   expect(stored.size).toBe(2);
   expect(success.output[0].id).toBe(failure.details.results[0].id);
 });
+
+it("issue 105: fixed-ID deletion replays its original condition after details disappear", async () => {
+  let deleted = false;
+  handler = (req, res, path, body) => {
+    if (req.method === "DELETE") {
+      expect(JSON.parse(body.toString()).expectedRowVersion).toBe(8);
+      deleted = true;
+      return json(res, { id: "job", status: "running" });
+    }
+    if (path.includes("/folders") || deleted) return json(res, {}, 404);
+    return json(res, { ...sampleFile, folderId: null });
+  };
+  const first = result(
+    await cli(["rm", "id:f1", "--permanent", "--yes", "--json"]),
+  );
+  const second = result(
+    await cli(["rm", "id:f1", "--permanent", "--yes", "--json"]),
+  );
+  expect(second.job_id).toBe(first.job_id);
+  expect(requests.filter((r) => r.method === "DELETE")).toHaveLength(2);
+});
