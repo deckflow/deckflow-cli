@@ -125,7 +125,7 @@ async function tracked<T>(
   details: () => Record<string, unknown>,
 ) {
   try {
-    if (ctx.interactive || ctx.opts.verbose)
+    if (!ctx.opts.quiet && (ctx.interactive || ctx.opts.verbose))
       process.stderr.write(`操作 ID：${id}\n`);
     return await execute();
   } catch (e) {
@@ -217,6 +217,7 @@ async function put(
         "STORAGE_UPLOAD_FAILED",
         `存储上传失败 (${response.status})`,
         response.status >= 500 ? 8 : 9,
+        { status: response.status },
       );
     return response.headers.get("etag");
   } finally {
@@ -404,6 +405,7 @@ export type UploadOptions = {
   createFolders?: boolean;
   ttlDays?: string;
   resume?: string;
+  expectedCurrentRevisionId?: string | null;
 };
 export async function upload(
   ctx: Context,
@@ -424,7 +426,10 @@ export async function upload(
     )
       throw usage("--resume 不能与其他上传参数合用");
     const state = await loadOperation(ctx, opts.resume, "upload");
-    if (ctx.opts.dryRun)
+    if (ctx.opts.dryRun) {
+      const current = await fingerprint(state.path);
+      if (current.bytes !== state.bytes || current.sha256 !== state.sha256)
+        throw new CliError("SOURCE_CHANGED", "恢复上传的本地文件已变化", 6);
       return {
         dryRun: true,
         operationId: opts.resume,
@@ -432,6 +437,7 @@ export async function upload(
         path: state.path,
         spaceId,
       };
+    }
     return tracked(
       ctx,
       opts.resume,
@@ -466,10 +472,13 @@ export async function upload(
     opts.folder && !planFolders
       ? await folderPath(api, spaceId, opts.folder)
       : null;
-  const expectedCurrentRevisionId = fileId
-    ? ((await api("file.detail", { spaceId, fileId })).currentRevisionId ??
-      null)
-    : null;
+  const expectedCurrentRevisionId =
+    opts.expectedCurrentRevisionId !== undefined
+      ? opts.expectedCurrentRevisionId
+      : fileId
+        ? ((await api("file.detail", { spaceId, fileId })).currentRevisionId ??
+          null)
+        : null;
   const folders = new Map<string, string | null>([["", folderId]]);
   const subfolders = [
     ...new Set(
@@ -634,6 +643,7 @@ export async function download(
           : response.status === 404
             ? 5
             : 8,
+      { status: response.status },
     );
   }
   const temp = join(dirname(target), `.deckflow-${randomUUID()}.tmp`);

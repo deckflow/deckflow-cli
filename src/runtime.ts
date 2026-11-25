@@ -117,7 +117,11 @@ async function canonical(
     ).toString("base64url"),
   };
 }
-async function resolveObject(ctx: Context, value: string): Promise<ObjectRow> {
+async function resolveObject(
+  ctx: Context,
+  value: string,
+  expectedKind?: "file" | "directory",
+): Promise<ObjectRow> {
   value = remote(value);
   const ws = await ctx.space(),
     api = await ctx.client();
@@ -131,7 +135,9 @@ async function resolveObject(ctx: Context, value: string): Promise<ObjectRow> {
     };
   if (value.startsWith("id:")) {
     const hits: ObjectRow[] = [];
-    for (const kind of ["file", "directory"] as const)
+    for (const kind of expectedKind
+      ? [expectedKind]
+      : (["file", "directory"] as const))
       try {
         const row =
           kind === "file"
@@ -191,18 +197,21 @@ async function maybe(ctx: Context, path: string) {
   }
 }
 async function directory(ctx: Context, path: string) {
-  const row = await resolveObject(ctx, path);
+  const row = await resolveObject(ctx, path, "directory");
   if (row.kind !== "directory") return fail("NOT_A_DIRECTORY", "目标不是目录");
   return row;
 }
 async function file(ctx: Context, path: string) {
-  const row = await resolveObject(ctx, path);
+  const row = await resolveObject(ctx, path, "file");
   if (row.kind !== "file") return fail("TYPE_MISMATCH", "需要文件");
   return row;
 }
 async function destination(ctx: Context, path: string, name: string) {
   remote(path);
   let target = await maybe(ctx, path);
+  if (!target && path.endsWith("/"))
+    fail("OBJECT_NOT_FOUND", "目标目录不存在", 5);
+  if (target?.kind === "file" && path.startsWith("id:")) path = target.path;
   if (target?.kind === "directory") {
     path = target.path.replace(/\/$/, "") + "/" + name;
     target = await maybe(ctx, path);
@@ -460,8 +469,14 @@ export function commands(root: Command, register: Register) {
     (c) => c.option("--force"),
   );
   const put: Run = async (ctx, [local, path], o) => {
-    if (o.resume) return upload(ctx, undefined, { resume: o.resume });
+    if (o.resume) {
+      if (o.ifVersion !== undefined || o.idempotencyKey !== undefined)
+        throw usage("--resume 不能与 --if-version 或 --idempotency-key 合用");
+      return upload(ctx, undefined, { resume: o.resume });
+    }
     const d = await destination(ctx, path, basename(local));
+    if (o.ifVersion !== undefined && !d.target)
+      fail("VERSION_CONFLICT", "指定版本的目标已不存在", 6);
     if (d.target && !o.force) fail("OBJECT_EXISTS", "目标存在", 6);
     if (d.target) {
       guard(d.target, o);
@@ -475,6 +490,9 @@ export function commands(root: Command, register: Register) {
         name: d.name,
         resume: o.resume,
         idempotencyKey: o.idempotencyKey,
+        ...(o.ifVersion !== undefined
+          ? { expectedCurrentRevisionId: d.target?.currentRevisionId ?? null }
+          : {}),
       },
       d.target?.id,
     );
@@ -501,8 +519,8 @@ export function commands(root: Command, register: Register) {
         const data = o.fromStdin
           ? Buffer.concat(chunks)
           : Buffer.from(o.content ?? "");
-        if (o.type && o.type !== "text/plain")
-          throw unsupported("非文本空文件创建");
+        if (o.type !== undefined)
+          throw unsupported("创建时显式指定 MIME 类型；当前由服务端探测");
         await writeFile(local, data, { mode: 0o600 });
         return await put(ctx, [local, path], o);
       } finally {
@@ -725,6 +743,9 @@ export function commands(root: Command, register: Register) {
     "读取已有视觉预览",
     async (ctx, [path], o) => {
       if (o.page && o.pages) throw usage("--page 与 --pages 互斥");
+      integer(o.limit ?? "50", 1, 100);
+      if (o.url && (o.page !== undefined || o.pages !== undefined))
+        throw usage("--url 不支持页面选择");
       const row = await file(ctx, path);
       if (o.url)
         return {
@@ -746,6 +767,7 @@ export function commands(root: Command, register: Register) {
         representation.mediaType.startsWith("image/")
       ) {
         if (o.page || o.pages) throw usage("单图不支持页面选择");
+        if (o.cursor !== undefined) throw usage("单图不支持游标分页");
         if (representation.revisionId !== row.currentRevisionId)
           fail("PREVIEW_OUTDATED", "视觉资源版本已变化");
         return {
@@ -759,8 +781,12 @@ export function commands(root: Command, register: Register) {
           image: {
             mime_type: representation.mediaType,
             retrieval: {
-              method: "file.content",
-              params: { spaceId, fileId: row.id },
+              method: "revision.content",
+              params: {
+                spaceId,
+                fileId: row.id,
+                revisionId: row.currentRevisionId,
+              },
             },
           },
         };
@@ -771,7 +797,10 @@ export function commands(root: Command, register: Register) {
         revisionId: row.currentRevisionId!,
       });
       const task = tasks.items.find(
-        (t) => t.target === "screenshots" && t.status === "succeeded",
+        (t) =>
+          t.target === "screenshots" &&
+          t.status === "succeeded" &&
+          t.outputs.length > 0,
       );
       if (!task) {
         for (let offset = 0; ;) {
@@ -790,7 +819,10 @@ export function commands(root: Command, register: Register) {
             });
             if (
               previous.items.some(
-                (t) => t.target === "screenshots" && t.status === "succeeded",
+                (t) =>
+                  t.target === "screenshots" &&
+                  t.status === "succeeded" &&
+                  t.outputs.length > 0,
               )
             )
               fail("PREVIEW_OUTDATED", "只有旧版本预览");
@@ -843,9 +875,11 @@ export function commands(root: Command, register: Register) {
           selected,
           o,
           JSON.stringify([
+            await ctx.apiUrl(),
             spaceId,
             row.id,
             row.currentRevisionId,
+            task!.operationId,
             o.page,
             o.pages,
           ]),
@@ -854,9 +888,11 @@ export function commands(root: Command, register: Register) {
           selected,
           o,
           JSON.stringify([
+            await ctx.apiUrl(),
             spaceId,
             row.id,
             row.currentRevisionId,
+            task!.operationId,
             o.page,
             o.pages,
           ]),
@@ -977,6 +1013,8 @@ export function commands(root: Command, register: Register) {
       "查询已建立的内容索引",
       async (ctx, [query, path = "/"], o) => {
         if (o.session) throw unsupported("问答会话");
+        if (name === "seek" && o.ignoreCase)
+          throw unsupported("语义搜索大小写控制");
         const api = await ctx.client(),
           spaceId = await ctx.space(),
           scope = await scopeOf(ctx, path);
@@ -1020,8 +1058,13 @@ export function commands(root: Command, register: Register) {
               })
             : await api("search.query", { ...params, rewrite: false });
         const items = [];
+        const objects = new Map<string, ObjectRow>();
         for (const hit of raw.hits ?? []) {
-          const object = await file(ctx, "id:" + hit.fileId);
+          let object = objects.get(hit.fileId);
+          if (!object) {
+            object = await file(ctx, "id:" + hit.fileId);
+            objects.set(hit.fileId, object);
+          }
           items.push({
             file_id: object.id,
             path: object.path,

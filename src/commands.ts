@@ -196,10 +196,15 @@ export function commands(root: Command, register: Register) {
   );
 
   const identity = async (ctx: Context, token?: string, apiUrl?: string) => {
-    const user = await (
-      await ctx.client(token, apiUrl)
-    )("user.self", { _full: "no" });
-    return { id: user.id, name: user.name };
+    const api = await ctx.client(token, apiUrl);
+    try {
+      const user = await api("user.self", { _full: "no" });
+      return { id: user.id, name: user.name };
+    } catch (error) {
+      if ((error as { status?: number }).status !== 403) throw error;
+      await api("my.spaces", {});
+      return null;
+    }
   };
   const auth = group("auth", "管理 DeckBase 身份");
   add(

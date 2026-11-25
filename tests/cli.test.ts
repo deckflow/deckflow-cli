@@ -454,6 +454,35 @@ describe("transfer regressions", () => {
         4,
       ).code,
     ).toBe("SOURCE_CHANGED");
+    expect(
+      result(
+        await cli([
+          "put",
+          "LOCAL",
+          "DEST",
+          "--resume",
+          uploaded.operationId,
+          "--dry-run",
+          "--json",
+        ]),
+        4,
+      ).code,
+    ).toBe("SOURCE_CHANGED");
+    await rm(join(temp, "空 文件.pdf"));
+    expect(
+      result(
+        await cli([
+          "put",
+          "LOCAL",
+          "DEST",
+          "--resume",
+          uploaded.operationId,
+          "--dry-run",
+          "--json",
+        ]),
+        2,
+      ).code,
+    ).toBe("ENOENT");
   });
 });
 
@@ -1368,4 +1397,292 @@ it("copies child paths, bounded stable keys and the selected source revision", a
   }
   expect(keys).toHaveLength(2);
   expect(keys[0]).toBe(keys[1]);
+});
+
+describe("issue regressions: selectors, previews and credentials", () => {
+  it("validates API keys through supported workspace discovery when identity is forbidden", async () => {
+    let valid = true;
+    handler = (_, res, path) => {
+      if (path.includes("/user")) return json(res, {}, 403);
+      return json(res, { rows: [], count: 0 }, valid ? 200 : 401);
+    };
+    expect(
+      result(
+        await cli(
+          ["auth", "login", "--token-stdin", "--json"],
+          {},
+          temp,
+          "synthetic",
+        ),
+      ).authenticated,
+    ).toBe(true);
+    expect(result(await cli(["auth", "status", "--json"])).authenticated).toBe(
+      true,
+    );
+    valid = false;
+    expect(result(await cli(["auth", "status", "--json"]), 3).code).toBe(
+      "UNAUTHENTICATED",
+    );
+  });
+  it("reads explicit file IDs without depending on the directory service", async () => {
+    handler = (_, res, path) => {
+      if (path.includes("/folders")) return json(res, {}, 503);
+      if (path.endsWith("/content"))
+        return json(res, {
+          url: base + "/bytes",
+          mediaType: "text/plain",
+          bytes: 2,
+        });
+      if (path === "/bytes") return res.end("ok");
+      return json(res, { ...sampleFile, folderId: null });
+    };
+    expect(result(await cli(["cat", "id:f1", "--json"])).text).toBe("ok");
+    expect(requests.some((r) => r.path.includes("/folders"))).toBe(false);
+  });
+  it("reuses resolved files across many search hits and rejects unsupported semantic case options", async () => {
+    handler = (_, res, path) =>
+      path.endsWith("/find")
+        ? json(res, {
+            hits: Array.from({ length: 50 }, () => ({ fileId: "f1" })),
+          })
+        : json(res, { ...sampleFile, folderId: null });
+    expect(result(await cli(["grep", "query", "--json"])).items).toHaveLength(
+      50,
+    );
+    expect(requests.filter((r) => r.path.endsWith("/files/f1"))).toHaveLength(
+      1,
+    );
+    const count = requests.length;
+    expect(
+      result(await cli(["seek", "query", "--ignore-case", "--json"]), 2).code,
+    ).toBe("UNSUPPORTED_OPERATION");
+    expect(requests).toHaveLength(count);
+  });
+  it("binds image retrieval to its revision and validates all view parameters", async () => {
+    handler = (_, res, path) => {
+      if (path.endsWith("/content"))
+        return json(res, { mediaType: "image/webp", revisionId: "r1" });
+      if (path.includes("/folders")) return json(res, { rows: [], count: 0 });
+      return json(res, { rows: [sampleFile], count: 1 });
+    };
+    const data = result(await cli(["view", "/" + sampleFile.name, "--json"]));
+    expect(data.image.retrieval).toMatchObject({
+      method: "revision.content",
+      params: { fileId: "f1", revisionId: "r1" },
+    });
+    for (const flags of [
+      ["--limit", "0"],
+      ["--cursor", "bogus"],
+      ["--url", "--page", "2"],
+      ["--url", "--pages", "1-2"],
+    ])
+      expect(
+        result(
+          await cli(["view", "/" + sampleFile.name, ...flags, "--json"]),
+          2,
+        ).code,
+      ).toBe("INVALID_ARGUMENT");
+  });
+  it("skips unavailable preview tasks and rejects a cursor after task replacement", async () => {
+    let op = "new",
+      oldOnly = false;
+    const task = () => ({
+      operationId: op,
+      target: "screenshots",
+      status: "succeeded",
+      outputs: [
+        { ordinal: 0, artifactId: "a", mediaType: "image/webp" },
+        { ordinal: 1, artifactId: "b", mediaType: "image/webp" },
+      ],
+    });
+    handler = (_, res, path) => {
+      if (path.endsWith("/content"))
+        return json(res, { mediaType: "application/pdf", revisionId: "r1" });
+      if (path.includes("/conversions"))
+        return json(res, {
+          items: oldOnly
+            ? [{ ...task(), outputs: [] }]
+            : [{ ...task(), operationId: "old", outputs: [] }, task()],
+        });
+      if (path.endsWith("/revisions") || path.includes("/revisions?"))
+        return json(res, { rows: [{ id: "r0" }], count: 1 });
+      if (path.includes("/folders")) return json(res, { rows: [], count: 0 });
+      return json(
+        res,
+        path.endsWith("/files/f1")
+          ? sampleFile
+          : { rows: [sampleFile], count: 1 },
+      );
+    };
+    const first = result(
+      await cli(["view", "/" + sampleFile.name, "--limit", "1", "--json"]),
+    );
+    expect(first.pages[0].retrieval.params.operationId).toBe("new");
+    op = "replacement";
+    expect(
+      result(
+        await cli([
+          "view",
+          "/" + sampleFile.name,
+          "--cursor",
+          first.next_cursor,
+          "--json",
+        ]),
+        2,
+      ).code,
+    ).toBe("INVALID_ARGUMENT");
+    oldOnly = true;
+    expect(
+      result(await cli(["view", "/" + sampleFile.name, "--json"]), 2).code,
+    ).toBe("PREVIEW_NOT_AVAILABLE");
+  });
+  it("enforces guarded uploads, ID destinations and explicit directory targets", async () => {
+    await writeFile(join(temp, "local"), "body");
+    let exists = true;
+    handler = (req, res, path, body) => {
+      if (path.endsWith("/upload-sessions")) {
+        expect(JSON.parse(body.toString()).expectedCurrentRevisionId).toBe(
+          "r1",
+        );
+        return json(res, {}, 409);
+      }
+      if (path === "/api/spaces/ws") return json(res, { regionId: "reg" });
+      if (path.startsWith("/api/regions"))
+        return json(res, { rows: [{ id: "reg", capabilities: {} }], count: 1 });
+      if (path.endsWith("/folders/f1")) return json(res, {}, 404);
+      if (path.includes("/folders")) return json(res, { rows: [], count: 0 });
+      if (path.endsWith("/files/f1"))
+        return json(res, {
+          ...sampleFile,
+          currentRevisionId: "r2",
+          folderId: null,
+        });
+      return json(res, {
+        rows: exists ? [sampleFile] : [],
+        count: exists ? 1 : 0,
+      });
+    };
+    const token = result(await cli(["ls", "/", "--json"])).items[0].version;
+    expect(
+      result(
+        await cli([
+          "put",
+          "local",
+          "/" + sampleFile.name,
+          "--force",
+          "--if-version",
+          token,
+          "--json",
+        ]),
+        4,
+      ).code,
+    ).toBe("VERSION_CONFLICT");
+    expect(requests.some((r) => r.path.endsWith("/upload-sessions"))).toBe(
+      true,
+    );
+    expect(
+      result(
+        await cli(["put", "local", "id:f1", "--force", "--dry-run", "--json"]),
+      ).dryRun,
+    ).toBe(true);
+    exists = false;
+    expect(
+      result(
+        await cli([
+          "put",
+          "local",
+          "/missing",
+          "--force",
+          "--if-version",
+          token,
+          "--json",
+        ]),
+        4,
+      ).code,
+    ).toBe("VERSION_CONFLICT");
+    for (const cmd of ["put", "cp", "mv"]) {
+      exists = true;
+      expect(
+        result(
+          await cli([
+            cmd,
+            cmd === "put" ? "local" : "/" + sampleFile.name,
+            "/missing/",
+            "--json",
+          ]),
+          4,
+        ).code,
+      ).toBe("OBJECT_NOT_FOUND");
+    }
+    expect(
+      result(
+        await cli([
+          "put",
+          "local",
+          "/x",
+          "--resume",
+          "fake",
+          "--if-version",
+          token,
+          "--json",
+        ]),
+        2,
+      ).code,
+    ).toBe("INVALID_ARGUMENT");
+    expect(
+      result(
+        await cli([
+          "new",
+          "/x",
+          "--type",
+          "text/plain",
+          "--content",
+          "x",
+          "--json",
+        ]),
+        2,
+      ).code,
+    ).toBe("UNSUPPORTED_OPERATION");
+  });
+});
+
+it("marks temporary storage failures retryable and respects quiet upload progress", async () => {
+  await writeFile(join(temp, "local"), "fixture");
+  handler = (_, res, path) => {
+    if (path === "/signed") return res.writeHead(503).end();
+    if (path.endsWith("/files/f1")) return json(res, sampleFile);
+    if (path.endsWith("/content"))
+      return json(res, {
+        revisionId: "r1",
+        bytes: 7,
+        sha256: hash("fixture"),
+        url: base + "/signed",
+      });
+    if (path.endsWith("/upload-sessions"))
+      return json(res, {
+        id: "up",
+        status: "pending",
+        upload: { url: base + "/signed", method: "PUT", headers: {} },
+      });
+    if (path === "/api/spaces/ws") return json(res, { regionId: "reg" });
+    if (path.startsWith("/api/regions"))
+      return json(res, { rows: [{ id: "reg", capabilities: {} }], count: 1 });
+    return json(res, { rows: [], count: 0 });
+  };
+  const upload = await cli([
+    "put",
+    "local",
+    "/target",
+    "--verbose",
+    "--quiet",
+    "--json",
+  ]);
+  const error = result(upload, 5);
+  expect(error.details.status).toBe(503);
+  expect(error.retryable).toBe(true);
+  expect(error.details.operationId).toBeTruthy();
+  expect(upload.stderr).not.toContain("操作 ID");
+  const download = result(await cli(["get", "id:f1", "target", "--json"]), 5);
+  expect(download.details.status).toBe(503);
+  expect(download.retryable).toBe(true);
 });
