@@ -238,11 +238,11 @@ export function commands(root: Command, register: Register) {
   }));
   add(auth, "logout", "清除本地凭据", async (ctx) => {
     if (ctx.opts.dryRun) return { dryRun: true, apiUrl: await ctx.apiUrl() };
-    await ctx.clearToken(await ctx.apiUrl());
+    const removed = await ctx.clearToken(await ctx.apiUrl());
     if (ctx.env.DECKFLOW_TOKEN)
       process.stderr.write("DECKFLOW_TOKEN 仍然生效。\n");
     return {
-      localCredentialRemoved: true,
+      localCredentialRemoved: removed,
       environmentTokenActive: !!ctx.env.DECKFLOW_TOKEN,
     };
   });

@@ -202,7 +202,7 @@ const root = new Command()
   .name("deckflow")
   .description("DeckBase 云端文件命令行客户端")
   .version(__VERSION__)
-  .option("--ws <id-or-slug>", "可选：覆盖已配置的默认工作空间")
+  .option("--ws <id>", "可选：覆盖默认工作空间；使用 ws ls 获取 ID")
   .option("--quiet", "减少状态输出")
   .option("--json", "输出 JSON")
   .option("--no-input", "禁用隐式交互")
@@ -225,6 +225,7 @@ commands(root, (cmd, run) => {
     workspaceId = (await ctx.spaceInfo()).id;
     await ctx.initialize();
     const result = await run(ctx, values.slice(0, -2) as string[], options);
+    workspaceId = (await ctx.spaceInfo()).id;
     if (
       result &&
       typeof result === "object" &&
@@ -285,6 +286,7 @@ try {
       NETWORK_ERROR: "BACKEND_UNAVAILABLE",
     };
     safe.code =
+      (billingCodes.has(safe.code) ? safe.code : undefined) ??
       codeMap[safe.code] ??
       (
         {
@@ -298,7 +300,15 @@ try {
       safe.code;
     process.exitCode = mapped;
     const json =
-      root.opts<Globals>().json || process.argv.slice(2).includes("--json");
+      root.opts<Globals>().json ||
+      process.argv
+        .slice(
+          2,
+          process.argv.indexOf("--") < 0
+            ? undefined
+            : process.argv.indexOf("--"),
+        )
+        .includes("--json");
     (json ? process.stdout : process.stderr).write(
       json
         ? JSON.stringify({

@@ -568,7 +568,10 @@ describe("transfer recovery and integrity", () => {
     expect(result(await cli(args)).bytes).toBe(3);
     const target = join(temp, "本地 file.pdf");
     expect(await readFile(target, "utf8")).toBe("pdf");
-    expect(result(await cli(args), 4).code).toBe("OBJECT_EXISTS");
+    const conflict = result(await cli(args), 4);
+    expect(conflict.code).toBe("OBJECT_EXISTS");
+    expect(conflict.message).toContain("--force");
+    expect(conflict.message).not.toContain("--overwrite");
     corrupt = true;
     expect(result(await cli([...args, "--force"]), 5).code).toBe(
       "DOWNLOAD_INTEGRITY_FAILED",
@@ -666,5 +669,358 @@ describe("processing adapters", () => {
     expect(
       result(await cli(["seek", "concept", "--json"])).retrieval_mode,
     ).toBe("semantic");
+  });
+});
+
+describe("issue regressions: configuration and object identity", () => {
+  it("rejects empty workspace flags and empty URL delimiters", async () => {
+    expect(
+      result(await cli(["ws", "info", "--ws", "", "--json"]), 2).code,
+    ).toBe("INVALID_ARGUMENT");
+    for (const value of [base + "/api?", base + "/api#"]) {
+      expect(
+        result(await cli(["config", "set", "apiUrl", value, "--json"]), 2).code,
+      ).toBe("INVALID_ARGUMENT");
+    }
+    expect(
+      result(
+        await cli([
+          "put",
+          "missing",
+          "/file",
+          "--idempotency-key",
+          "",
+          "--json",
+        ]),
+        2,
+      ).code,
+    ).toBe("INVALID_ARGUMENT");
+    expect(requests).toEqual([]);
+  });
+  it("rejects malformed credential shapes instead of reporting a saved value", async () => {
+    await mkdir(join(temp, ".deckflow"), { recursive: true });
+    await writeFile(join(temp, ".deckflow", "credentials"), "[]");
+    expect(
+      result(await cli(["config", "set", "webUrl", base, "--json"]), 2).code,
+    ).toBe("INVALID_ARGUMENT");
+    expect(await readFile(join(temp, ".deckflow", "credentials"), "utf8")).toBe(
+      "[]",
+    );
+  });
+  it("reports whether endpoint-bound credentials were actually removed", async () => {
+    await mkdir(join(temp, ".deckflow"), { recursive: true });
+    await writeFile(
+      join(temp, ".deckflow", "credentials"),
+      JSON.stringify({ token: "synthetic", tokenApiRoot: base + "/other" }),
+    );
+    expect(
+      result(await cli(["auth", "logout", "--json"])).localCredentialRemoved,
+    ).toBe(false);
+    await writeFile(
+      join(temp, ".deckflow", "credentials"),
+      JSON.stringify({ token: "synthetic", tokenApiRoot: base + "/api" }),
+    );
+    expect(
+      result(await cli(["auth", "logout", "--json"])).localCredentialRemoved,
+    ).toBe(true);
+  });
+  it("uses the queried workspace in response metadata and binary GB quotas", async () => {
+    handler = (_, res, path) =>
+      path.includes("/billing")
+        ? json(res, {
+            plan: { storageGB: 5 },
+            storage_bytes: "5100000000",
+            egress_used_bytes: "0",
+            period: {},
+          })
+        : json(res, { id: "other" });
+    for (const action of ["info", "usage", "quota", "use"]) {
+      const run = await cli(["ws", action, "other", "--ws", "ws", "--json"]);
+      const data = result(run);
+      expect(JSON.parse(run.stdout).meta.workspace_id).toBe("other");
+      if (action === "quota")
+        expect(data.storage_bytes).toEqual({
+          limit: "5368709120",
+          used: "5100000000",
+          remaining: "268709120",
+        });
+    }
+  });
+  it("retains known billing codes on forbidden responses", async () => {
+    handler = (_, res) => json(res, { code: "STORAGE_WRITE_RESTRICTED" }, 403);
+    expect(result(await cli(["ws", "info", "--json"]), 5).code).toBe(
+      "STORAGE_WRITE_RESTRICTED",
+    );
+  });
+  it("binds directory versions to object IDs and rejects empty mutation guards", async () => {
+    let id = "old";
+    handler = (_, res, path) =>
+      path.includes("/folders")
+        ? json(res, { rows: [{ id, name: "A", rowVersion: 1 }], count: 1 })
+        : json(res, { rows: [], count: 0 });
+    const old = result(await cli(["info", "/A", "--json"])).version;
+    id = "new";
+    expect(result(await cli(["info", "/A", "--json"])).version).not.toBe(old);
+    expect(
+      result(
+        await cli([
+          "rm",
+          "/A",
+          "--permanent",
+          "--yes",
+          "--if-version",
+          old,
+          "--json",
+        ]),
+        4,
+      ).code,
+    ).toBe("VERSION_CONFLICT");
+    expect(
+      result(
+        await cli([
+          "rm",
+          "/A",
+          "--permanent",
+          "--yes",
+          "--if-version",
+          "",
+          "--json",
+        ]),
+        2,
+      ).code,
+    ).toBe("INVALID_ARGUMENT");
+    expect(requests.every((r) => r.method === "GET")).toBe(true);
+  });
+  it("rejects oversized directory components before any writes", async () => {
+    for (const flags of [[], ["--dry-run"]]) {
+      expect(
+        result(
+          await cli([
+            "mkdir",
+            "/new/" + "x".repeat(256),
+            "--parents",
+            ...flags,
+            "--json",
+          ]),
+          2,
+        ).code,
+      ).toBe("INVALID_ARGUMENT");
+    }
+    expect(requests).toEqual([]);
+  });
+  it("does not interpret a literal --json after the argument separator as an output option", async () => {
+    const run = await cli(["grep", "--", "--json"]);
+    expect(run.code).not.toBe(0);
+    expect(run.stdout).toBe("");
+    expect(run.stderr).toBeTruthy();
+  });
+});
+
+describe("issue regressions: content and list scopes", () => {
+  function objects() {
+    handler = (_, res, path) => {
+      if (path.includes("/folders")) return json(res, { rows: [], count: 0 });
+      if (path.includes("/files"))
+        return json(res, {
+          rows: [{ ...sampleFile, createdAt: "2026-01-01T00:00:00Z" }],
+          count: 1,
+        });
+    };
+  }
+  it("keeps a UTF-8 BOM and rejects mismatching content hashes and delivery 404s", async () => {
+    const text = "\ufefforiginal\n";
+    let sha256 = hash(text),
+      status = 200;
+    handler = (_, res, path) => {
+      if (path === "/bytes") {
+        res.writeHead(status);
+        return res.end(text);
+      }
+      if (path.endsWith("/content"))
+        return json(res, {
+          url: base + "/bytes",
+          mediaType: "text/plain",
+          bytes: Buffer.byteLength(text),
+          sha256,
+        });
+      if (path.includes("/folders")) return json(res, { rows: [], count: 0 });
+      if (path.includes("/files"))
+        return json(res, { rows: [sampleFile], count: 1 });
+    };
+    expect((await cli(["cat", "/" + sampleFile.name])).stdout).toBe(text);
+    expect(
+      result(await cli(["cat", "/" + sampleFile.name, "--json"])).text,
+    ).toBe(text);
+    sha256 = hash("wrong");
+    expect(
+      result(await cli(["cat", "/" + sampleFile.name, "--json"]), 5).code,
+    ).toBe("DOWNLOAD_INTEGRITY_FAILED");
+    status = 404;
+    const error = result(
+      await cli(["cat", "/" + sampleFile.name, "--json"]),
+      4,
+    );
+    expect(error.code).toBe("OBJECT_NOT_FOUND");
+    expect(error.details.status).toBe(404);
+    expect(error.retryable).toBe(false);
+  });
+  it("rejects nonexistent dates and excludes exact before boundaries", async () => {
+    objects();
+    expect(
+      result(await cli(["find", "/", "--after", "2026-02-30", "--json"]), 2)
+        .code,
+    ).toBe("INVALID_ARGUMENT");
+    expect(
+      result(
+        await cli(["find", "/", "--before", "2026-01-01T00:00:00Z", "--json"]),
+      ).items,
+    ).toEqual([]);
+    expect(
+      result(await cli(["find", "/", "--before", "2026-01-02", "--json"]))
+        .items,
+    ).toHaveLength(1);
+  });
+  it("compares MIME types without case and rejects invalid types", async () => {
+    objects();
+    const list = handler;
+    handler = (req, res, path, body) =>
+      path.endsWith("/content")
+        ? json(res, { mediaType: "Image/PNG" })
+        : list(req, res, path, body);
+    for (const type of ["image/png", "IMAGE/PNG", "image"]) {
+      expect(
+        result(await cli(["find", "/", "--type", type, "--json"])).items,
+      ).toHaveLength(1);
+    }
+    expect(
+      result(await cli(["find", "/", "--type", "invalid", "--json"]), 2).code,
+    ).toBe("INVALID_ARGUMENT");
+  });
+  it("rejects cursors from replaced directory objects and different API roots", async () => {
+    let id = "old";
+    handler = (_, res, path) => {
+      if (path.includes("/folders"))
+        return json(res, {
+          rows: path.includes("parentId=")
+            ? []
+            : [{ id, name: "Target", rowVersion: 1 }],
+          count: path.includes("parentId=") ? 0 : 1,
+        });
+      if (path.includes("/files"))
+        return json(res, {
+          rows: [
+            { ...sampleFile, id: "one", name: "one" },
+            { ...sampleFile, id: "two", name: "two" },
+          ],
+          count: 2,
+        });
+    };
+    for (const cmd of ["ls", "find"]) {
+      id = "old";
+      const cursor = result(
+        await cli([cmd, "/Target", "--limit", "1", "--json"]),
+      ).next_cursor;
+      expect(cursor).toBeTruthy();
+      id = "new";
+      expect(
+        result(await cli([cmd, "/Target", "--cursor", cursor, "--json"]), 2)
+          .code,
+      ).toBe("INVALID_ARGUMENT");
+      id = "old";
+      expect(
+        result(
+          await cli([cmd, "/Target", "--cursor", cursor, "--json"], {
+            DECKFLOW_API_URL: base + "/another",
+          }),
+          2,
+        ).code,
+      ).toBe("INVALID_ARGUMENT");
+    }
+  });
+  it("supports the root ID emitted by info", async () => {
+    objects();
+    const id = result(await cli(["info", "/", "--json"])).id;
+    expect(result(await cli(["ls", "id:" + id, "--json"])).items).toHaveLength(
+      1,
+    );
+  });
+  it("creates normalized directories with trailing separators and rejects directory file targets", async () => {
+    let name: string | undefined;
+    handler = (req, res, path, body) => {
+      if (path.includes("/folders") && req.method === "POST") {
+        name = JSON.parse(body.toString()).name;
+        return json(res, { id: "created", name });
+      }
+      if (path.includes("/folders"))
+        return json(res, {
+          rows: name ? [{ id: "created", name, rowVersion: 1 }] : [],
+          count: name ? 1 : 0,
+        });
+      if (path.includes("/files")) return json(res, { rows: [], count: 0 });
+    };
+    expect(result(await cli(["mkdir", "/Cafe\u0301/", "--json"])).path).toBe(
+      "/Café",
+    );
+    expect(name).toBe("Café");
+    expect(
+      result(await cli(["new", "/Café", "--content", "test", "--json"]), 2)
+        .code,
+    ).toBe("TYPE_MISMATCH");
+  });
+});
+
+describe("issue regressions: upload inputs", () => {
+  it("rejects directory uploads with an accurate message", async () => {
+    handler = (_, res, path) => {
+      if (path.includes("/folders") || path.includes("/files?"))
+        return json(res, { rows: [], count: 0 });
+    };
+    const error = result(await cli(["put", temp, "/target", "--json"]), 2);
+    expect(error.message).toContain("常规文件");
+    expect(error.message).not.toContain("--recursive");
+    expect(requests.every((r) => r.method === "GET")).toBe(true);
+  });
+  it("creates cloud names longer than the local filesystem basename limit", async () => {
+    const name = "🙂".repeat(130) + ".txt";
+    handler = (req, res, path, body) => {
+      if (
+        req.method === "GET" &&
+        (path.includes("/folders") || path.includes("/files?"))
+      )
+        return json(res, { rows: [], count: 0 });
+      if (path === "/api/spaces/ws") return json(res, { regionId: "region" });
+      if (path === "/api/regions")
+        return json(res, {
+          rows: [{ id: "region", capabilities: {} }],
+          count: 1,
+        });
+      if (path.endsWith("/upload-sessions")) {
+        expect(JSON.parse(body.toString())).toMatchObject({ name, bytes: 7 });
+        return json(res, {
+          id: "up",
+          status: "pending",
+          upload: { url: base + "/signed", method: "PUT", headers: {} },
+        });
+      }
+      if (path === "/signed") {
+        expect(body.toString()).toBe("fixture");
+        return res.end();
+      }
+      if (path.endsWith("/complete"))
+        return json(res, { id: "up", status: "verified" });
+      if (path.endsWith("/files") && req.method === "POST")
+        return json(res, { ...sampleFile, name }, 201);
+      if (path.endsWith("/upload-sessions/up"))
+        return json(res, {
+          id: "up",
+          status: "committed",
+          targetFileId: "f1",
+          committedRevisionId: "r1",
+        });
+    };
+    expect(
+      result(await cli(["new", "/" + name, "--content", "fixture", "--json"]))
+        .fileId,
+    ).toBe("f1");
   });
 });

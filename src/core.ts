@@ -86,8 +86,8 @@ export function endpoint(value: string, label: string) {
     !["https:", "http:"].includes(url.protocol) ||
     url.username ||
     url.password ||
-    url.search ||
-    url.hash
+    value.includes("?") ||
+    value.includes("#")
   )
     throw usage(`${label} 必须是无凭据、查询和片段的 HTTP(S) URL`);
   return url.href.replace(/\/$/, "");
@@ -274,7 +274,16 @@ export class Context {
     }
   }
   private async credentials() {
-    return (await readJson<StoredCredentials>(this.credentialsPath)) ?? {};
+    const data = await readJson<unknown>(this.credentialsPath);
+    if (data === undefined) return {};
+    if (
+      !data ||
+      typeof data !== "object" ||
+      Array.isArray(data) ||
+      Object.values(data).some((value) => typeof value !== "string")
+    )
+      throw usage("凭据配置必须是字符串字段组成的 JSON 对象");
+    return data as StoredCredentials;
   }
   private async updateCredentials(update: (data: StoredCredentials) => void) {
     const release = await lockfile.lock(this.credentialsPath, {
@@ -310,14 +319,21 @@ export class Context {
     });
   }
   async clearToken(url: string) {
+    let removed = false;
     await this.updateCredentials((data) => {
       if ((data.tokenApiRoot ?? data.apiRoot) !== url) return;
+      removed = data.token !== undefined;
       delete data.token;
       delete data.tokenApiRoot;
     });
+    return removed;
   }
   async spaceInfo() {
-    if (this.opts.ws) return { id: this.opts.ws, source: "flag" };
+    if (this.opts.ws !== undefined) {
+      if (!this.opts.ws.trim())
+        throw usage("--ws 不能为空，请用 ws ls 获取工作空间 ID");
+      return { id: this.opts.ws, source: "flag" };
+    }
     if (this.env.DECKFLOW_WORKSPACE)
       return { id: this.env.DECKFLOW_WORKSPACE, source: "environment" };
     return { id: (await this.config()).space, source: "user" };

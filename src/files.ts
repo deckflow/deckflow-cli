@@ -446,7 +446,7 @@ export async function upload(
   const directory = entry.isDirectory();
   if (!entry.isFile() && !directory) throw usage("上传源必须是常规文件或目录");
   if (directory && (!opts.recursive || fileId))
-    throw usage("上传目录需要 --recursive");
+    throw usage("put 仅支持常规文件，不支持上传目录");
   if (!directory && opts.createFolders)
     throw usage("--create-folders 仅用于递归上传");
   const paths = directory ? await manifest(root) : [root];
@@ -600,7 +600,7 @@ export async function download(
   if (exists && (!opts.overwrite || !exists.isFile()))
     throw new CliError(
       "OUTPUT_EXISTS",
-      "目标已存在，请选择其他路径或指定 --overwrite",
+      "目标已存在，请选择其他路径或指定 --force",
       6,
     );
   if (ctx.opts.dryRun)

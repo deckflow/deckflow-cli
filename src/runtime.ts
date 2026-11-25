@@ -2,7 +2,7 @@ import { Command } from "commander";
 import { basename, dirname, join } from "node:path";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { commands as legacy } from "./commands.js";
 import {
   CliError,
@@ -72,6 +72,7 @@ async function all(api: ApiCall, ws: string, parent: string | null) {
           path: "",
           version: Buffer.from(
             JSON.stringify({
+              id: row.id,
               row: row.rowVersion,
               revision:
                 "currentRevisionId" in row ? row.currentRevisionId : null,
@@ -109,6 +110,7 @@ async function canonical(
     workspace_id: ws,
     version: Buffer.from(
       JSON.stringify({
+        id: row.id,
         row: row.rowVersion,
         revision: row.currentRevisionId ?? null,
       }),
@@ -119,7 +121,7 @@ async function resolveObject(ctx: Context, value: string): Promise<ObjectRow> {
   value = remote(value);
   const ws = await ctx.space(),
     api = await ctx.client();
-  if (value === "/")
+  if (value === "/" || value === "id:root")
     return {
       id: "root",
       name: "",
@@ -214,7 +216,7 @@ async function destination(ctx: Context, path: string, name: string) {
   };
 }
 function guard(row: ObjectRow, o: Options) {
-  if (o.ifVersion && o.ifVersion !== row.version)
+  if (o.ifVersion !== undefined && o.ifVersion !== row.version)
     fail("VERSION_CONFLICT", "对象版本已变化", 6);
 }
 function paginate(c: Command) {
@@ -317,6 +319,10 @@ export function commands(root: Command, register: Register) {
         throw usage("角色必须是 manager 或 teammate");
       if (o.mode && !["lexical", "hybrid"].includes(o.mode))
         throw usage("搜索模式必须是 lexical 或 hybrid");
+      if (o.ifVersion !== undefined && !o.ifVersion)
+        throw usage("--if-version 不能为空");
+      if (o.idempotencyKey !== undefined && !o.idempotencyKey)
+        throw usage("--idempotency-key 不能为空");
       return run(ctx, args, o);
     });
   };
@@ -336,12 +342,19 @@ export function commands(root: Command, register: Register) {
     root,
     "ls [directory]",
     "列出文件与目录",
-    async (ctx, [path = "/"], o) =>
-      listing(
-        await tree(ctx, await directory(ctx, path), !!o.recursive),
+    async (ctx, [path = "/"], o) => {
+      const scope = await directory(ctx, path);
+      return listing(
+        await tree(ctx, scope, !!o.recursive),
         o,
-        JSON.stringify([await ctx.space(), path, !!o.recursive]),
-      ),
+        JSON.stringify([
+          await ctx.apiUrl(),
+          await ctx.space(),
+          scope.id,
+          !!o.recursive,
+        ]),
+      );
+    },
     (c) => paginate(c).option("--recursive"),
   );
   add(root, "info <object>", "读取对象信息", async (ctx, [path]) => {
@@ -366,11 +379,22 @@ export function commands(root: Command, register: Register) {
     const res = await ctx.fetch(c.url, {
       signal: AbortSignal.timeout(ctx.requestMs),
     });
-    if (!res.ok) fail("BACKEND_UNAVAILABLE", "文本读取失败", 9);
+    if (!res.ok) {
+      await res.body?.cancel();
+      throw Object.assign(new Error("文本读取失败"), { status: res.status });
+    }
     const bytes = new Uint8Array(await res.arrayBuffer());
+    if (
+      (typeof c.bytes === "number" && bytes.byteLength !== c.bytes) ||
+      (c.sha256 &&
+        createHash("sha256").update(bytes).digest("hex") !== c.sha256)
+    )
+      fail("DOWNLOAD_INTEGRITY_FAILED", "下载内容与服务端校验值不一致", 9);
     let text: string;
     try {
-      text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
+        bytes,
+      );
     } catch {
       return fail("TEXT_NOT_AVAILABLE", "内容不是 UTF-8 文本");
     }
@@ -381,11 +405,13 @@ export function commands(root: Command, register: Register) {
     "mkdir <directory>",
     "创建目录",
     async (ctx, [path], o) => {
-      remote(path);
+      path = remote(path).normalize("NFC");
       if (path.startsWith("id:")) throw usage("创建需要绝对路径");
       let parentId: string | null = null;
       let current = "";
       const parts = path.slice(1).split("/");
+      if (parts.some((part) => !part || Array.from(part).length > 255))
+        throw usage("目录名须为 1–255 个字符");
       for (let i = 0; i < parts.length; i++) {
         current += "/" + parts[i];
         let row = await maybe(ctx, current);
@@ -456,9 +482,11 @@ export function commands(root: Command, register: Register) {
       if (o.content !== undefined && o.fromStdin)
         throw usage("--content 与 --from-stdin 互斥");
       remote(path);
+      if ((await maybe(ctx, path))?.kind === "directory")
+        fail("TYPE_MISMATCH", "文件路径指向已有目录");
       const dir = await mkdtemp(join(tmpdir(), "deckflow-new-"));
       try {
-        const local = join(dir, basename(path));
+        const local = join(dir, "content");
         const chunks: Buffer[] = [];
         if (o.fromStdin)
           for await (const b of process.stdin) chunks.push(Buffer.from(b));
@@ -629,6 +657,7 @@ export function commands(root: Command, register: Register) {
       if (path === "/") throw usage("禁止删除根目录");
       if (!o.permanent) throw unsupported("回收站软删除");
       const row = await resolveObject(ctx, path);
+      if (row.id === "root") throw usage("禁止删除根目录");
       guard(row, o);
       const api = await ctx.client(),
         spaceId = await ctx.space();
@@ -813,6 +842,14 @@ export function commands(root: Command, register: Register) {
     "元数据查询",
     async (ctx, [path = "/"], o) => {
       const scope = await resolveObject(ctx, path);
+      if (
+        o.type &&
+        !["document", "image", "audio", "video"].includes(
+          o.type.toLowerCase(),
+        ) &&
+        !/^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/i.test(o.type)
+      )
+        throw usage("--type 需要 document、image、audio、video 或 MIME 类型");
       let rows = scope.kind === "file" ? [scope] : await tree(ctx, scope, true);
       if (o.name) {
         const regex = new RegExp(
@@ -838,35 +875,43 @@ export function commands(root: Command, register: Register) {
           const c = await (
             await ctx.client()
           )("file.content", { spaceId: await ctx.space(), fileId: r.id });
-          const t = o.type;
+          const t = o.type.toLowerCase();
+          const mediaType = c.mediaType.toLowerCase();
           const yes = t.includes("/")
-            ? c.mediaType === t
+            ? mediaType === t
             : t === "document"
-              ? /^(application\/(pdf|vnd\.|msword)|text\/)/.test(c.mediaType)
+              ? /^(application\/(pdf|vnd\.|msword)|text\/)/.test(mediaType)
               : ["image", "audio", "video"].includes(t)
-                ? c.mediaType.startsWith(t + "/")
+                ? mediaType.startsWith(t + "/")
                 : false;
           if (yes) matched.push(r);
         }
         rows = matched;
       }
-      for (const [key, sign] of [
-        ["after", 1],
-        ["before", -1],
-      ] as const)
+      for (const key of ["after", "before"] as const)
         if (o[key]) {
           const time = Date.parse(o[key]!);
-          if (!Number.isFinite(time)) throw usage("无效日期");
-          rows = rows.filter(
-            (x) => sign * (Date.parse(String(x.createdAt)) - time) >= 0,
+          const date = /^(\d{4}-\d{2}-\d{2})(?:T|$)/.exec(o[key]!);
+          if (
+            !Number.isFinite(time) ||
+            (date &&
+              new Date(Date.parse(date[1])).toISOString().slice(0, 10) !==
+                date[1])
+          )
+            throw usage("无效日期");
+          rows = rows.filter((x) =>
+            key === "before"
+              ? Date.parse(String(x.createdAt)) < time
+              : Date.parse(String(x.createdAt)) >= time,
           );
         }
       return listing(
         rows,
         o,
         JSON.stringify([
+          await ctx.apiUrl(),
           await ctx.space(),
-          path,
+          scope.id,
           o.name,
           o.type,
           o.after,
@@ -877,7 +922,10 @@ export function commands(root: Command, register: Register) {
     (c) =>
       paginate(c)
         .option("--name <glob>")
-        .option("--type <type>")
+        .option(
+          "--type <type>",
+          "document、image、audio、video 或完整 MIME 类型",
+        )
         .option("--after <date>")
         .option("--before <date>"),
   );
@@ -998,6 +1046,7 @@ export function commands(root: Command, register: Register) {
       async (ctx, [selector], o) => {
         const id = selector ?? (await ctx.space()),
           api = await ctx.client();
+        ctx.opts.ws = id;
         if (action === "info") return api("space.detail", { id });
         if (action === "use") {
           await api("space.detail", { id });
@@ -1040,7 +1089,7 @@ export function commands(root: Command, register: Register) {
             egress_used_bytes: b.egress_used_bytes,
             period: b.period,
           };
-        const limit = BigInt(b.plan.storageGB) * 1000000000n,
+        const limit = BigInt(b.plan.storageGB) * 1073741824n,
           used = BigInt(b.storage_bytes);
         return {
           storage_bytes: {
