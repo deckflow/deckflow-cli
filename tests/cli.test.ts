@@ -2250,7 +2250,11 @@ it("issue 90: refuses saving into a replaced output directory after waiting", as
   ).toBe(false);
 });
 
-async function smokeFixture(stub: string, fast = false) {
+async function smokeFixture(
+  stub: string,
+  fast = false,
+  env: NodeJS.ProcessEnv = {},
+) {
   await mkdir(join(temp, "dist"));
   await writeFile(join(temp, "dist", "cli.js"), stub);
   let source = await readFile(resolve("scripts/live-smoke.mjs"), "utf8");
@@ -2262,6 +2266,7 @@ async function smokeFixture(stub: string, fast = false) {
     DECKFLOW_SMOKE_SPACE: "ws",
     DECKFLOW_API_URL: base + "/api",
     DECKFLOW_TOKEN: "synthetic",
+    ...env,
   });
 }
 it("issue 114: cleanup timeout includes the exact job handle and resource path", async () => {
@@ -2273,4 +2278,24 @@ it("issue 114: cleanup timeout includes the exact job handle and resource path",
   expect(run.stderr).toContain("dfj1.cleanup");
   expect(run.stderr).toContain("/deckflow-smoke-");
   expect(run.stderr).toContain("--ws ws");
+});
+
+it("issue 113: smoke CLI state stays inside the disposable smoke home", async () => {
+  const log = join(temp, "env.log");
+  const run = await smokeFixture(
+    `require("fs").appendFileSync(process.env.SMOKE_LOG, JSON.stringify({home:process.env.HOME,xdg:process.env.XDG_CONFIG_HOME})+"\\n");const a=process.argv[2];if(a==="put")process.exit(5);console.log(JSON.stringify({ok:true,data:a==="rm"?{job_id:"cleanup"}:a==="jobs"?{state:"succeeded"}:{}}));`,
+    false,
+    { SMOKE_LOG: log },
+  );
+  expect(run.code).not.toBe(0);
+  const entries = (await readFile(log, "utf8"))
+    .trim()
+    .split("\n")
+    .map((s) => JSON.parse(s));
+  expect(entries.length).toBeGreaterThan(2);
+  for (const entry of entries) {
+    expect(entry.home).not.toBe(temp);
+    expect(entry.home).toBe(entry.xdg);
+  }
+  await expect(stat(entries[0].home)).rejects.toMatchObject({ code: "ENOENT" });
 });

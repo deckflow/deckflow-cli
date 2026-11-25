@@ -17,7 +17,16 @@ function run(args) {
   const raw = execFileSync(
     process.execPath,
     ["dist/cli.js", ...args, "--ws", space, "--json", "--no-input"],
-    { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+    {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      env: {
+        ...process.env,
+        HOME: temp,
+        USERPROFILE: temp,
+        XDG_CONFIG_HOME: temp,
+      },
+    },
   );
   const response = JSON.parse(raw);
   assert.equal(response.ok, true);
