@@ -2209,3 +2209,43 @@ it("issue 95: generated render names remain within the backend Unicode name limi
     ).output[0].id,
   ).toBe("out");
 });
+
+it("issue 90: refuses saving into a replaced output directory after waiting", async () => {
+  let replaced = false;
+  handler = (req, res, path) => {
+    if (path.includes("/conversions")) {
+      if (req.method === "GET") replaced = true;
+      return json(res, {
+        operationId: "op",
+        status: req.method === "POST" ? "queued" : "succeeded",
+        outputs: [{ artifactId: "a", ordinal: 0, format: "webp" }],
+      });
+    }
+    if (path.includes("/folders"))
+      return json(res, {
+        rows: [
+          { id: replaced ? "new" : "old", name: "Outputs", rowVersion: 1 },
+        ],
+        count: 1,
+      });
+    return json(res, { rows: [sampleFile], count: 1 });
+  };
+  const error = result(
+    await cli([
+      "ops",
+      "render",
+      "/" + sampleFile.name,
+      "--to",
+      "webp",
+      "--output",
+      "/Outputs",
+      "--json",
+    ]),
+    4,
+  );
+  expect(error.code).toBe("OUTPUT_TARGET_CHANGED");
+  expect(error.details.job_id).toBeTruthy();
+  expect(
+    requests.some((r) => r.method === "POST" && r.path.endsWith("/files")),
+  ).toBe(false);
+});

@@ -1516,6 +1516,35 @@ export function commands(root: Command, register: Register) {
               serverCode: done.errorCode,
               retryable: done.retryable,
             });
+          if (outputDir) {
+            const current = await maybe(ctx, o.output!);
+            if (
+              !current ||
+              current.kind !== "directory" ||
+              current.id !== outputDir.id
+            )
+              throw new CliError(
+                "OUTPUT_TARGET_CHANGED",
+                "等待期间输出目录已变化，请核实输出目标",
+                6,
+                { job_id: handle },
+              );
+            outputDir = current;
+          }
+          if (target) {
+            const parent = await maybe(ctx, dirname(target.path));
+            if (
+              !parent ||
+              parent.kind !== "directory" ||
+              (parent.id === "root" ? null : parent.id) !== target.parentId
+            )
+              throw new CliError(
+                "OUTPUT_TARGET_CHANGED",
+                "等待期间输出父目录已变化",
+                6,
+                { job_id: handle },
+              );
+          }
           const outputs = done.outputs;
           if (!outputs.length)
             throw new CliError("RESULT_NOT_AVAILABLE", "任务产物已不可用", 6, {
