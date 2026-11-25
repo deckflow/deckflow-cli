@@ -4,7 +4,7 @@
 
 All commands support `--json`; consult each command's `--help`. Remote objects accept absolute workspace paths or `id:<id>`. Local paths apply only to put/get. Relative remote paths are unsupported.
 
-Use `--lang en|zh|auto`, `DECKFLOW_LANG`, or `config set lang en|zh|auto` to select a language. These sources take precedence in that order; `auto` selects the system language. See [language configuration](../README.en.md#language).
+Use `--lang en|zh|auto`, `DECKFLOW_LANG`, or `config set lang en|zh|auto` to select a language. These sources take precedence in that order; `auto` selects the system language. See [language configuration](../README.md#language).
 
 | Command           | Behavior                                                                                                         |
 | ----------------- | ---------------------------------------------------------------------------------------------------------------- |

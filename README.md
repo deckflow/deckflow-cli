@@ -1,21 +1,21 @@
 # DeckFlow CLI
 
-**中文** | [English](README.en.md)
+**English** | [简体中文](README.zh-CN.md)
 
-`deckflow` 是面向开发者、Agent 和 CI 的 DeckBase 文件命令行客户端，提供文件与目录管理、内容检索、已有文本与视觉预览读取、文件处理任务和版本管理。当前源码包版本为 `0.3.0`，命令设计遵循 v0.3 规范。
+`deckflow` is a DeckBase file CLI for developers, agents and CI. It manages files and directories, searches content, reads existing text and visual previews, submits processing jobs and manages revisions. The current package version is `0.3.0`, using the v0.3 command contract.
 
-## 安装
+## Installation
 
-安装和运行需要 Node.js 18.17.0 或更高版本。公共 npm 是首选安装渠道：
+Node.js 18.17.0 or later is required. Public npm is the preferred installation channel:
 
 ```sh
 npm install -g @deckflow/deckflow-cli --registry=https://registry.npmjs.org
 deckflow --version
 ```
 
-如曾为 `@deckflow` 配置 GitHub Packages scope registry，使用公共 npm 前先移除该 scope 配置。旧包用户先参阅[迁移说明](docs/migration-v03.md)。也可以用 `npm install -g ./deckflow-deckflow-cli-0.3.0.tgz` 安装本地构建包。安装包自带 SDK 运行时代码。
+Remove any existing GitHub Packages scope registry for `@deckflow` before using public npm. Existing users should read the [migration guide](docs/migration-v03.en.md). A local archive can also be installed with `npm install -g ./deckflow-deckflow-cli-0.3.0.tgz`. SDK runtime code is bundled.
 
-GitHub Packages 是独立的可选发布渠道。使用该渠道时，将下面两行添加到用户级 `.npmrc`，通过环境变量提供有包读取权限的 GitHub PAT classic，再执行安装命令：
+GitHub Packages is an optional, independent publishing channel. Add the following to your user `.npmrc`, supply a GitHub PAT classic with package read access through the environment, then install:
 
 ```ini
 @deckflow:registry=https://npm.pkg.github.com
@@ -26,20 +26,20 @@ GitHub Packages 是独立的可选发布渠道。使用该渠道时，将下面�
 npm install -g @deckflow/deckflow-cli
 ```
 
-## 界面语言
+## Language
 
-默认自动检测系统语言；中文系统使用简体中文，其他不支持的语言回退英文。
+The CLI automatically detects your system language. Chinese locales use Simplified Chinese; unsupported languages fall back to English.
 
 ```sh
-deckflow config set lang zh
 deckflow config set lang en
+deckflow config set lang zh
 deckflow config set lang auto
 deckflow --lang en --help
 ```
 
-优先级：`--lang` → `DECKFLOW_LANG` → 已保存的 `lang` → 系统语言。任一层显式设置 `auto` 时直接读取系统语言。系统检测识别 `LANGUAGE`、`LC_ALL`、`LC_MESSAGES`、`LANG`，缺失时读取 Intl 默认 locale；`C/POSIX` 使用英文。语言设置无需登录或配置服务端。命令名、参数名、错误码及 JSON 字段保持固定；CLI 生成的错误说明和提示跟随语言，用户内容及服务端原始原因保持原文。本地授权回调页跟随 CLI，DeckBase 授权网站使用独立网页语言设置。
+Precedence: `--lang` → `DECKFLOW_LANG` → saved `lang` → system language. `auto` at any level selects system detection directly. System detection respects the message locale environment and falls back to the default Intl locale. `C` and `POSIX` use English. Language changes need no server credentials. Commands, option names, error codes and JSON keys are stable. CLI-generated messages are translated; user content and original server reasons are preserved. The local login callback follows the CLI; the DeckBase website retains its own language setting.
 
-## 快速开始
+## Quick start
 
 ```sh
 deckflow config set apiUrl https://deckbase.example.com/api
@@ -54,35 +54,27 @@ deckflow get id:FILE_ID ./downloaded-report.pdf
 deckflow view id:FILE_ID --url
 ```
 
-将 `WORKSPACE_ID`、`FILE_ID` 替换为实际 ID。`ws use` 会保存默认工作空间，后续命令可省略 `--ws`。需要临时切换时使用：
+Replace IDs with actual values. `ws use` persists the default workspace. Override it temporarily with `--ws OTHER_WORKSPACE_ID`. Workspace precedence is `--ws` → `DECKFLOW_WORKSPACE` → saved default; missing all three produces `WORKSPACE_REQUIRED`.
 
-```sh
-deckflow ls / --ws OTHER_WORKSPACE_ID --json
-```
+- Objects: `ls/info/mkdir/new/put/get/cp/mv/rm`. `cat` reads existing UTF-8 text; `view` reads existing previews for the current revision.
+- Retrieval: `find` filters metadata, `grep` matches content with RE2, `seek` performs semantic retrieval and `ask` returns grounded answers. Lexical/hybrid `search` is not connected.
+- Workspaces: `ws`; file processing: `ops`; jobs: `jobs`; history: `version`.
+- Structured files: `pptx/docx` expose capabilities; deep structure reading and editing are not implemented.
 
-工作空间优先级为 `--ws` → `DECKFLOW_WORKSPACE` → 已保存的用户默认值。临时覆盖不修改默认配置；三者均未设置时返回 `WORKSPACE_REQUIRED`。
+Unavailable backend capabilities return `NOT_IMPLEMENTED` or `UNSUPPORTED_OPERATION`. Soft deletion is unavailable. Permanent deletion requires `rm --permanent` and confirmation. Processing returns artifacts unless `--output` requests managed files.
 
-主要命令入口：
+With `--json`, success and failure each produce one JSON object on stdout; diagnostics go to stderr. Agents and CI should use `--no-input --json` and inspect `ok`, `error.code` and exit status.
 
-- 对象管理：`ls/info/mkdir/new/put/get/cp/mv/rm`；`cat` 读取已有 UTF-8 文本，`view` 读取当前版本已有预览。
-- 检索：`find` 查元数据，`grep` 做正则内容匹配，`seek` 做语义检索，`ask` 返回带依据的回答。`search` 的 lexical/hybrid 模式尚未接通。
-- 工作空间：`ws`；文件处理：`ops`；任务查询：`jobs`；版本历史：`version`。
-- 结构化文件：`pptx/docx` 提供能力查询，深度结构读取和编辑尚未实现。
+Browser login defaults to creating an API key. Select Token on the web or use `--mode token`. A temporary local HTTP callback receives authorization, exchanges and saves credentials without copying or polling. `--no-browser` displays the link, which must be opened on the CLI machine. Credentials are stored in `~/.deckflow/credentials` with mode 0600 and bound to the API endpoint. CI can supply `DECKFLOW_TOKEN`; `--token-stdin` imports credentials.
 
-后端未提供的功能会明确返回 `NOT_IMPLEMENTED` 或 `UNSUPPORTED_OPERATION`。默认软删除尚未支持；永久删除须显式使用 `rm --permanent` 并确认。`ops` 默认返回处理产物，指定 `--output` 才创建受管文件。完整支持范围见命令参考。
+- [Migration](docs/migration-v03.en.md)
+- [Command reference and support matrix](docs/commands.en.md)
+- [Authentication and workspaces](docs/auth-and-workspaces.en.md)
+- [Agents and CI](docs/automation.en.md)
 
-使用 `--json` 时，成功和失败均在 stdout 输出单个 JSON 对象，诊断写入 stderr。Agent 和 CI 可使用 `--no-input --json`，并通过 `ok`、`error.code` 和退出码判断结果。
+## Development
 
-`deckflow auth login` 会打开 DeckBase 授权页面，默认创建 API Key，也可在网页切换 Token，或通过 `deckflow auth login --mode token` 指定。CLI 临时启动本地 HTTP 服务接收浏览器回调，授权后自动领取并保存凭据，无需复制粘贴，也不轮询。`--no-browser` 只显示链接，需在运行 CLI 的同一台电脑上打开。凭据和对应 API 地址存入权限为 0600 的 `~/.deckflow/credentials`。CI 可通过密钥管理器设置 `DECKFLOW_TOKEN` 直接运行命令，或使用 `auth login --token-stdin` 导入。
-
-- [v0.3 迁移说明](docs/migration-v03.md)
-- [命令参考与支持矩阵](docs/commands.md)
-- [认证与工作空间](docs/auth-and-workspaces.md)
-- [Agent 与 CI](docs/automation.md)
-
-## 本地开发
-
-将 DeckBase 放在相邻的 `../deckbase`。构建和测试使用 Node.js 24、TypeScript 7.0.2 和 pnpm 11.21.0。CI 默认使用工作流中固定的 DeckBase SDK 源 commit，可通过仓库变量 `DECKBASE_SDK_REF` 覆盖；所选版本须包含浏览器回调接口。先发布 DeckBase 的 API 与 WebUI，再发布 CLI。
+Place DeckBase at `../deckbase`. Development uses Node.js 24, TypeScript 7.0.2 and pnpm 11.21.0. The DeckBase SDK version must include browser callback APIs. Deploy the DeckBase API and WebUI before publishing the CLI.
 
 ```sh
 pnpm --dir ../deckbase install --frozen-lockfile
@@ -94,9 +86,7 @@ node dist/cli.js --help
 pnpm pack
 ```
 
-升级 SDK 时，同步更新 CI 固定的 commit，重新构建 SDK 并安装 CLI 开发依赖后运行检查。CLI 从实际安装 SDK 的类型声明与运行时代码生成方法清单，用于校验适配器使用的接口及其 HTTP 动词。已有 `dist-sdk` 时可直接安装 CLI 依赖并运行检查；若重新生成 SDK 遇到上游 `embed.query` 类型错误，参见迁移说明中的已知限制。
-
-测试本地代码全局安装后的效果：
+When upgrading the SDK, rebuild and reinstall dependencies, then run all checks. The method manifest is generated from the intersection of installed SDK declarations and runtime routes, verifying adapter methods and HTTP verbs. Existing `dist-sdk` can be used directly. See the migration guide for the upstream `embed.query` generation limitation.
 
 ```sh
 pnpm install:global
@@ -104,17 +94,21 @@ deckflow --version
 deckflow --help
 ```
 
-该命令会重新构建，将与发布相同的 `.tgz` 安装包通过 `npm install --global` 安装到当前 npm 全局目录，并清理临时安装包。修改代码后再次运行即可更新全局命令；执行前需安装项目开发依赖，并确保 npm 全局命令目录已加入 `PATH`。
+Global installation rebuilds and installs the same archive used for release, then cleans temporary files. Repeat after code changes. Install development dependencies first and ensure the npm global binary directory is on `PATH`.
 
-## 本地发布
+## Publishing
 
-更新 `package.json` 的版本号，并为目标 registry 配置有发布权限的 npm 凭据。两个命令都会重新构建并打包当前版本。
+Update the package version and configure publishing credentials for the target registry. Both commands typecheck, rebuild and pack:
 
 ```sh
-pnpm release          # 公开发布到 registry.npmjs.org
-pnpm release --github # 发布到 npm.pkg.github.com
+pnpm release          # Publish to public npm
+pnpm release --github # Publish to GitHub Packages
 ```
 
-任一命令可加 `--dry-run` 预览目标和安装包。发布到 GitHub Packages 时，同一版本也可以走下方的 tag 发布流程，选择其中一个入口即可。
+After a successful publication, `pnpm release` creates a local tag matching the package version (for example, `v0.3.0`) without pushing it. An existing tag aborts the release before publication. `--github` skips tag creation. Add `--dry-run` to preview publication without creating a tag. Before publishing, run `pnpm ci:check` to check translations, formatting, types, tests and the installable package.
 
-GitHub Actions 的构建需要 `DECKBASE_CHECKOUT_TOKEN`（仅 DeckBase 仓库读取）和 `DECKBASE_PACKAGES_TOKEN`（读取 DeckBase 的私有包依赖）。带版本的 `v*` tag 通过三平台安装验证后发布，tag 必须与 `package.json` 版本一致。发布作业使用当前仓库的 `GITHUB_TOKEN`。
+The GitHub Actions workflow has been removed for now. Branch and version tag pushes do not automatically build or publish; use the local publishing commands above.
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).

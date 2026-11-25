@@ -3,6 +3,7 @@
   "version": "0.3.0",
   "type": "module",
   "description": "DeckFlow command line client for DeckBase",
+  "license": "MIT",
   "repository": "https://github.com/deckflow/deckflow-cli.git",
   "bin": {
     "deckflow": "dist/cli.js"
@@ -10,7 +11,8 @@
   "files": [
     "dist",
     "docs",
-    "README.en.md"
+    "README.zh-CN.md",
+    "LICENSE"
   ],
   "engines": {
     "node": ">=18.17.0"

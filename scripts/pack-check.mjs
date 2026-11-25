@@ -155,7 +155,8 @@ try {
   assert.match(await run(["--lang", "en", "--help"]), /Usage: deckflow/);
   assert.match(await run(["--lang", "zh", "--help"]), /用法： deckflow/);
   for (const name of [
-    "README.en.md",
+    "README.zh-CN.md",
+    "LICENSE",
     "docs/commands.en.md",
     "docs/auth-and-workspaces.en.md",
     "docs/automation.en.md",
