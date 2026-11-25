@@ -2576,3 +2576,45 @@ it("issue 77: upload dry-run checks the same known regional file-size limit", as
   ).toBe("INVALID_ARGUMENT");
   expect(requests.some((r) => r.method === "POST")).toBe(false);
 });
+
+it("issue 81: a concurrently committed multipart session returns its original result", async () => {
+  const id = "12345678-1234-1234-1234-123456789abc",
+    bytes = 32 * 1024 ** 2;
+  const path = join(temp, "source");
+  await writeFile(path, "");
+  await truncate(path, bytes);
+  await mkdir(join(temp, "deckflow", "operations"), { recursive: true });
+  await writeFile(
+    join(temp, "deckflow", "operations", id + ".json"),
+    JSON.stringify({
+      kind: "upload",
+      endpoint: base + "/api",
+      spaceId: "ws",
+      path,
+      bytes,
+      sha256: hash(Buffer.alloc(bytes)),
+      expectedCurrentRevisionId: null,
+      maxParts: 10000,
+      sessionId: "up",
+    }),
+  );
+  let reads = 0;
+  handler = (_, res, path) =>
+    path.endsWith("/parts")
+      ? json(res, {}, 409)
+      : json(
+          res,
+          ++reads === 1
+            ? { id: "up", status: "uploading", multipart: true, parts: [] }
+            : {
+                id: "up",
+                status: "committed",
+                targetFileId: "f1",
+                committedRevisionId: "r1",
+              },
+        );
+  expect(
+    result(await cli(["put", "LOCAL", "DEST", "--resume", id, "--json"])),
+  ).toMatchObject({ fileId: "f1", revisionId: "r1", status: "committed" });
+  expect(reads).toBe(2);
+});

@@ -265,6 +265,26 @@ async function transfer(
       throw new CliError("SOURCE_CHANGED", "文件指纹与原操作不一致", 6);
   }
   const name = state.name ?? basename(path);
+  const committedResult = (session: {
+    targetFileId?: string | null;
+    committedRevisionId?: string | null;
+  }) => {
+    const resultFileId = session.targetFileId || fileId;
+    if (!resultFileId || !session.committedRevisionId)
+      throw new CliError(
+        "INVALID_UPLOAD_RESULT",
+        "服务端缺少已提交的文件或版本 ID",
+        9,
+      );
+    return {
+      operationId: id,
+      fileId: resultFileId,
+      revisionId: session.committedRevisionId,
+      name,
+      bytes,
+      status: "committed",
+    };
+  };
   let session = state.sessionId
     ? await api("uploadSession.detail", { spaceId, id: state.sessionId })
     : await api("uploadSession.add", {
@@ -293,10 +313,21 @@ async function transfer(
       for (let number = 1; number <= Math.ceil(bytes / partBytes); number++) {
         let etag = completed.get(number);
         if (!etag) {
-          const { parts: signed } = await api("uploadSession.parts", {
-            ...query,
-            partNumbers: [number],
-          });
+          let signed: Result<"uploadSession.parts">["parts"];
+          try {
+            signed = (
+              await api("uploadSession.parts", {
+                ...query,
+                partNumbers: [number],
+              })
+            ).parts;
+          } catch (error) {
+            if ((error as { status?: number }).status === 409) {
+              const latest = await api("uploadSession.detail", query);
+              if (latest.status === "committed") return committedResult(latest);
+            }
+            throw error;
+          }
           if (!signed[0])
             throw new CliError(
               "MISSING_UPLOAD_PART",
@@ -337,23 +368,7 @@ async function transfer(
   }
   if (failed(session.status))
     throw taskFailure(session.status, session.errorCode);
-  if (session.status === "committed") {
-    const resultFileId = session.targetFileId || fileId;
-    if (!resultFileId || !session.committedRevisionId)
-      throw new CliError(
-        "INVALID_UPLOAD_RESULT",
-        "服务端缺少已提交的文件或版本 ID",
-        9,
-      );
-    return {
-      operationId: id,
-      fileId: resultFileId,
-      revisionId: session.committedRevisionId,
-      name,
-      bytes,
-      status: "committed",
-    };
-  }
+  if (session.status === "committed") return committedResult(session);
   if (fileId) {
     const revision = await api("revision.add", {
       spaceId,
