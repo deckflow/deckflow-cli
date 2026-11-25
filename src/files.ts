@@ -1,6 +1,14 @@
 import { createHash, randomUUID } from "node:crypto";
-import { createReadStream, createWriteStream } from "node:fs";
-import { link, lstat, mkdir, readdir, rename, rm } from "node:fs/promises";
+import { constants, createReadStream, createWriteStream } from "node:fs";
+import {
+  copyFile,
+  link,
+  lstat,
+  mkdir,
+  readdir,
+  rename,
+  rm,
+} from "node:fs/promises";
 import { basename, dirname, join, relative, sep } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -771,7 +779,16 @@ export async function download(
           9,
         );
       if (opts.overwrite) await rename(temp, target);
-      else await link(temp, target);
+      else
+        await link(temp, target).catch(async (error) => {
+          if (
+            !["ENOTSUP", "EOPNOTSUPP", "EPERM", "ENOSYS"].includes(
+              (error as NodeJS.ErrnoException).code ?? "",
+            )
+          )
+            throw error;
+          await copyFile(temp, target, constants.COPYFILE_EXCL);
+        });
       return { fileId, revisionId: content.revisionId, path: target, bytes };
     } finally {
       await rm(temp, { force: true });
