@@ -17,7 +17,7 @@ import {
   usage,
   type ApiCall,
 } from "./core.js";
-import { upload, download, finishFile } from "./files.js";
+import { upload, replayUpload, download, finishFile } from "./files.js";
 
 type Options = Record<string, string | undefined>;
 type Run = (ctx: Context, args: string[], opts: Options) => Promise<unknown>;
@@ -628,6 +628,15 @@ export function commands(root: Command, register: Register) {
       return upload(ctx, undefined, { resume: o.resume });
     }
     const d = await destination(ctx, path, basename(local));
+    if (o.idempotencyKey && o.ifVersion === undefined) {
+      const recovered = await replayUpload(ctx, local, {
+        folderId: d.parentId,
+        name: d.name,
+        key: o.idempotencyKey,
+        targetId: d.target?.id,
+      });
+      if (recovered !== undefined) return recovered;
+    }
     if (o.ifVersion !== undefined && !d.target)
       fail("VERSION_CONFLICT", "指定版本的目标已不存在", 6);
     if (d.target && !o.force) fail("OBJECT_EXISTS", "目标存在", 6);
@@ -773,7 +782,7 @@ export function commands(root: Command, register: Register) {
       const row = await resolveObject(ctx, source);
       guard(row, o);
       const d = await destination(ctx, path, row.name);
-      if (d.target)
+      if (d.target && !(row.kind === "file" && o.idempotencyKey))
         fail(
           o.force ? "UNSUPPORTED_OPERATION" : "OBJECT_EXISTS",
           "目标存在",

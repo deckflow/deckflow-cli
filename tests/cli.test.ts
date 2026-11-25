@@ -2870,3 +2870,98 @@ it("issue 80: restore replays the original current-revision precondition", async
   expect(result(await cli(args)).id).toBe("restored");
   expect(expected).toEqual(["r1", "r1"]);
 });
+
+it("issue 27: completed keyed uploads return their original result on retry", async () => {
+  await writeFile(join(temp, "source"), "fixture");
+  let created = false;
+  handler = (req, res, path) => {
+    if (path === "/signed") return res.end();
+    if (path.includes("/upload-sessions"))
+      return json(
+        res,
+        created
+          ? {
+              id: "up",
+              status: "committed",
+              targetFileId: "f1",
+              committedRevisionId: "r1",
+            }
+          : {
+              id: "up",
+              status: path.endsWith("/complete") ? "verified" : "pending",
+              upload: { url: base + "/signed", method: "PUT", headers: {} },
+            },
+      );
+    if (req.method === "POST" && path.endsWith("/files")) {
+      created = true;
+      return json(res, { ...sampleFile, name: "upload.txt" });
+    }
+    if (path.endsWith("/spaces/ws")) return json(res, { regionId: "reg" });
+    if (path.includes("/regions"))
+      return json(res, { rows: [{ id: "reg", capabilities: {} }], count: 1 });
+    if (path.includes("/folders")) return json(res, { rows: [], count: 0 });
+    return json(res, {
+      rows: created ? [{ ...sampleFile, name: "upload.txt" }] : [],
+      count: created ? 1 : 0,
+    });
+  };
+  const args = [
+    "put",
+    "source",
+    "/upload.txt",
+    "--idempotency-key",
+    "same",
+    "--json",
+  ];
+  expect(result(await cli(args)).fileId).toBe("f1");
+  expect(result(await cli(args)).fileId).toBe("f1");
+  expect(
+    requests.filter((r) => r.method === "POST" && r.path.endsWith("/files")),
+  ).toHaveLength(1);
+});
+it("issue 27: keyed file copies reach backend replay despite existing targets", async () => {
+  let created = false;
+  const bodies: string[] = [];
+  handler = (req, res, path, body) => {
+    if (req.method === "POST") {
+      if (bodies.length && body.toString() !== bodies[0])
+        return json(res, {}, 409);
+      bodies.push(body.toString());
+      created = true;
+      return json(res, { ...sampleFile, id: "copy", name: "copy.pdf" });
+    }
+    if (path.includes("/folders")) return json(res, { rows: [], count: 0 });
+    return json(res, {
+      rows: [
+        sampleFile,
+        ...(created ? [{ ...sampleFile, id: "copy", name: "copy.pdf" }] : []),
+      ],
+      count: created ? 2 : 1,
+    });
+  };
+  const args = [
+    "cp",
+    "/" + sampleFile.name,
+    "/copy.pdf",
+    "--idempotency-key",
+    "same",
+    "--json",
+  ];
+  expect(result(await cli(args)).id).toBe("copy");
+  expect(result(await cli(args)).id).toBe("copy");
+  expect(bodies).toHaveLength(2);
+  expect(bodies[0]).toBe(bodies[1]);
+  expect(
+    result(
+      await cli([
+        "cp",
+        "/" + sampleFile.name,
+        "/different.pdf",
+        "--idempotency-key",
+        "same",
+        "--json",
+      ]),
+      4,
+    ).code,
+  ).toBe("VERSION_CONFLICT");
+});

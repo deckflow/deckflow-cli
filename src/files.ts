@@ -447,6 +447,43 @@ export type UploadOptions = {
   resume?: string;
   expectedCurrentRevisionId?: string | null;
 };
+async function keyedUploadId(ctx: Context, key: string) {
+  const digest = createHash("sha256")
+    .update(
+      JSON.stringify([
+        await ctx.apiUrl(),
+        await ctx.credentialScope(),
+        await ctx.space(),
+        key,
+      ]),
+    )
+    .digest("hex")
+    .slice(0, 32);
+  return `${digest.slice(0, 8)}-${digest.slice(8, 12)}-${digest.slice(12, 16)}-${digest.slice(16, 20)}-${digest.slice(20)}`;
+}
+export async function replayUpload(
+  ctx: Context,
+  local: string,
+  target: {
+    folderId: string | null;
+    name: string;
+    key: string;
+    targetId?: string;
+  },
+) {
+  const id = await keyedUploadId(ctx, target.key);
+  const previous = await readJson<UploadState>(operationPath(ctx, id));
+  if (!previous) return;
+  const state = await loadOperation(ctx, id, "upload");
+  if (
+    state.path !== ctx.path(local) ||
+    (state.name ?? basename(state.path)) !== target.name ||
+    (state.folderId ?? null) !== target.folderId ||
+    (state.fileId && state.fileId !== target.targetId)
+  )
+    throw new CliError("IDEMPOTENCY_CONFLICT", "幂等键已用于不同的上传请求", 6);
+  return upload(ctx, undefined, { resume: id });
+}
 export async function upload(
   ctx: Context,
   local: string | undefined,
@@ -581,21 +618,8 @@ export async function upload(
   if (planFolders)
     folders.set("", await folderPath(api, spaceId, opts.folder!, true));
   for (const path of paths) {
-    const digest = opts.idempotencyKey
-      ? createHash("sha256")
-          .update(
-            JSON.stringify([
-              await ctx.apiUrl(),
-              await ctx.credentialScope(),
-              spaceId,
-              opts.idempotencyKey,
-            ]),
-          )
-          .digest("hex")
-          .slice(0, 32)
-      : undefined;
-    const id = digest
-      ? `${digest.slice(0, 8)}-${digest.slice(8, 12)}-${digest.slice(12, 16)}-${digest.slice(16, 20)}-${digest.slice(20)}`
+    const id = opts.idempotencyKey
+      ? await keyedUploadId(ctx, opts.idempotencyKey)
       : randomUUID();
     try {
       const sub = directory
