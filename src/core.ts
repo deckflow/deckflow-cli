@@ -379,9 +379,19 @@ export class Context {
         "请先 auth login 或设置 DECKFLOW_TOKEN",
         3,
       );
-    const client = createClient(url, token, (input, init) =>
-      this.fetch(input, { ...init, redirect: "error" }),
-    );
+    const client = createClient(url, token, async (input, init) => {
+      const response = await this.fetch(input, { ...init, redirect: "manual" });
+      if (response.status >= 300 && response.status < 400) {
+        await response.body?.cancel();
+        throw new CliError(
+          "INVALID_API_ENDPOINT",
+          "API 地址返回重定向，请更新配置中的 API 基础地址",
+          2,
+          { status: response.status },
+        );
+      }
+      return response;
+    });
     return async <M extends Method>(
       method: M,
       params: Params<M>,

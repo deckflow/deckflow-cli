@@ -1817,3 +1817,13 @@ it("issue 92: keeps search index profile conflicts distinct from file version co
     expect(error.retryable).toBe(false);
   }
 });
+
+it("issue 110: API redirects are actionable configuration errors without retries", async () => {
+  handler = (_, res) =>
+    res.writeHead(308, { location: base + "/new-api" }).end();
+  const error = result(await cli(["ws", "info", "--json"]), 2);
+  expect(error.code).toBe("INVALID_API_ENDPOINT");
+  expect(error.details.status).toBe(308);
+  expect(error.retryable).toBe(false);
+  expect(requests).toHaveLength(1);
+});
