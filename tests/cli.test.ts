@@ -1730,3 +1730,13 @@ it("issue 49: local capabilities never create authentication state", async () =>
   });
   expect(requests).toEqual([]);
 });
+
+it("issue 42: missing subcommands use the unified JSON error contract", async () => {
+  for (const command of ["config", "auth", "ws", "ops", "jobs", "version"]) {
+    const error = result(await cli([command, "--json"]), 2);
+    expect(error.code).toBe("INVALID_ARGUMENT");
+    expect(error.message).toContain(command + " 需要子命令");
+  }
+  expect((await cli(["config", "--help"])).stdout).toContain("Usage:");
+  expect(requests).toEqual([]);
+});

@@ -260,6 +260,17 @@ commands(root, (cmd, run) => {
   });
 });
 
+for (const group of root.commands.filter(
+  (command) => command.commands.length > 0,
+))
+  group.action(() => {
+    throw new CliError(
+      "INVALID_ARGUMENT",
+      `${group.name()} 需要子命令；使用 ${group.name()} --help 查看可用命令`,
+      2,
+    );
+  });
+
 try {
   await root.parseAsync();
 } catch (e) {
