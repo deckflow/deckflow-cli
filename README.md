@@ -58,7 +58,7 @@ deckflow ls / --ws OTHER_WORKSPACE_ID --json
 
 使用 `--json` 时，成功和失败均在 stdout 输出单个 JSON 对象，诊断写入 stderr。Agent 和 CI 可使用 `--no-input --json`，并通过 `ok`、`error.code` 和退出码判断结果。
 
-从 DeckBase WebUI 的 API Key 页面获取密钥。交互登录会隐藏输入，并将 Token 和对应 API 地址存入 `~/.deckflow/credentials`。CI 通过密钥管理器设置 `DECKFLOW_TOKEN`，可以直接运行命令。
+`deckflow auth login` 会打开 DeckBase 授权页面，默认创建 API Key，也可在网页切换 Token，或通过 `deckflow auth login --mode token` 指定。CLI 临时启动本地 HTTP 服务接收浏览器回调，授权后自动领取并保存凭据，无需复制粘贴，也不轮询。`--no-browser` 只显示链接，需在运行 CLI 的同一台电脑上打开。凭据和对应 API 地址存入权限为 0600 的 `~/.deckflow/credentials`。CI 可通过密钥管理器设置 `DECKFLOW_TOKEN` 直接运行命令，或使用 `auth login --token-stdin` 导入。
 
 - [v0.3 迁移说明](docs/migration-v03.md)
 - [命令参考与支持矩阵](docs/commands.md)
@@ -67,7 +67,7 @@ deckflow ls / --ws OTHER_WORKSPACE_ID --json
 
 ## 本地开发
 
-将 DeckBase 放在相邻的 `../deckbase`。构建和测试使用 Node.js 24、TypeScript 7.0.2 和 pnpm 11.21.0。发布 CI 使用工作流中固定的 SDK 源 commit。
+将 DeckBase 放在相邻的 `../deckbase`。构建和测试使用 Node.js 24、TypeScript 7.0.2 和 pnpm 11.21.0。CI 默认使用工作流中固定的 DeckBase SDK 源 commit，可通过仓库变量 `DECKBASE_SDK_REF` 覆盖；所选版本须包含浏览器回调接口。先发布 DeckBase 的 API 与 WebUI，再发布 CLI。
 
 ```sh
 pnpm --dir ../deckbase install --frozen-lockfile

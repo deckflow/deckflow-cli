@@ -3,13 +3,13 @@ import { basename, dirname, join } from "node:path";
 import type { Method, Params } from "@deckflow/deckbase-sdk";
 import type { Command } from "commander";
 import openBrowser from "open";
+import { authorizationMode, browserLogin } from "./auth.js";
 import {
   CliError,
   Context,
   configFields,
   configKey,
   endpoint,
-  hiddenToken,
   inputJson,
   isRead,
   methodOf,
@@ -210,14 +210,22 @@ export function commands(root: Command, register: Register) {
   add(
     auth,
     "login",
-    "导入并验证 API Key 或 Token",
+    "通过浏览器授权登录，或导入 API Key / Token",
     async (ctx, _, o) => {
-      if (ctx.opts.dryRun) return { dryRun: true, apiUrl: await ctx.apiUrl() };
+      const mode = authorizationMode(o.mode);
+      if (o.tokenStdin && mode)
+        throw usage("--mode 不能与 --token-stdin 同时使用");
+      const apiUrl = await ctx.apiUrl();
+      if (ctx.opts.dryRun) return { dryRun: true, apiUrl };
+      if (!o.tokenStdin && (mode || !ctx.env.DECKFLOW_TOKEN))
+        return browserLogin(
+          ctx,
+          apiUrl,
+          mode,
+          o.browser === undefined || Boolean(o.browser),
+        );
       const token = (
-        o.tokenStdin
-          ? await stdinText()
-          : ctx.env.DECKFLOW_TOKEN ||
-            (ctx.interactive ? await hiddenToken() : "")
+        o.tokenStdin ? await stdinText() : ctx.env.DECKFLOW_TOKEN || ""
       ).trim();
       if (!token || /\s/.test(token))
         throw new CliError(
@@ -225,7 +233,6 @@ export function commands(root: Command, register: Register) {
           "请提供有效 Token，使用 --token-stdin 或 DECKFLOW_TOKEN",
           3,
         );
-      const apiUrl = await ctx.apiUrl();
       const user = await identity(ctx, token, apiUrl);
       await ctx.saveToken(apiUrl, token);
       return {
@@ -234,7 +241,14 @@ export function commands(root: Command, register: Register) {
         environmentTokenActive: !!ctx.env.DECKFLOW_TOKEN,
       };
     },
-    (c) => c.option("--token-stdin", "从标准输入读入 Token"),
+    (c) =>
+      c
+        .option(
+          "--mode <mode>",
+          "浏览器授权模式：apikey（默认）或 token；不指定时可在网页切换",
+        )
+        .option("--no-browser", "只显示授权链接，不自动打开浏览器")
+        .option("--token-stdin", "从标准输入读入 API Key 或 Token"),
   );
   add(auth, "status", "验证当前身份", async (ctx) => ({
     authenticated: true,

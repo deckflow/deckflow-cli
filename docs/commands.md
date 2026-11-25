@@ -2,25 +2,26 @@
 
 所有命令支持 `--json`；详情见各命令 `--help`。对象接受绝对工作空间路径或 `id:<id>`，本地路径仅用于 put/get。相对远端路径不受支持。
 
-| 命令              | 行为                                                                            |
-| ----------------- | ------------------------------------------------------------------------------- |
-| ls / info         | 混合列表、递归、元数据与不透明版本标识                                          |
-| mkdir             | 创建目录，`--parents` 允许创建父目录                                            |
-| new               | 空文本、`--content` 文本或 `--from-stdin` 字节；显式 MIME 当前仅支持 text/plain |
-| put / get         | 原始字节上传下载；`--force` 覆盖，远端覆盖追加同类型版本并保留 ID               |
-| cp                | 文件与递归目录复制；目标存在时拒绝覆盖                                          |
-| mv                | 同目录改名或保持名称跨目录移动；同时移动改名不支持                              |
-| rm                | 默认软删除当前不支持；`--permanent --yes` 进入真实删除任务                      |
-| cat               | 仅现成 UTF-8 原文，无自动提取或 AI 理解                                         |
-| view              | 当前 revision 的已有预览；返回 artifact 获取描述；`--url` 只输出 viewer 链接    |
-| find              | 元数据名称 glob、类型、创建日期过滤                                             |
-| grep / seek / ask | RE2 内容匹配、语义检索、带真实依据的问答                                        |
-| search            | lexical/hybrid 模式缺接口，返回 NOT_IMPLEMENTED                                 |
-| ws                | ls/info/use、usage/quota/balance/members、invite/remove/role、edit --name       |
-| ops               | capabilities、convert --to pdf、render --to webp；指定 --output 才创建受管文件  |
-| jobs              | status/result 接受返回的 dfj1 句柄，可跨机器查询；ls/cancel 不支持              |
-| version           | ls、restore --to REVISION_ID；恢复创建新版本                                    |
-| pptx / docx       | capabilities；结构 info 尚未实现                                                |
+| 命令              | 行为                                                                                        |
+| ----------------- | ------------------------------------------------------------------------------------------- |
+| auth              | login 通过浏览器回调登录，--mode apikey/token、--no-browser、--token-stdin；status / logout |
+| ls / info         | 混合列表、递归、元数据与不透明版本标识                                                      |
+| mkdir             | 创建目录，`--parents` 允许创建父目录                                                        |
+| new               | 空文本、`--content` 文本或 `--from-stdin` 字节；显式 MIME 当前仅支持 text/plain             |
+| put / get         | 原始字节上传下载；`--force` 覆盖，远端覆盖追加同类型版本并保留 ID                           |
+| cp                | 文件与递归目录复制；目标存在时拒绝覆盖                                                      |
+| mv                | 同目录改名或保持名称跨目录移动；同时移动改名不支持                                          |
+| rm                | 默认软删除当前不支持；`--permanent --yes` 进入真实删除任务                                  |
+| cat               | 仅现成 UTF-8 原文，无自动提取或 AI 理解                                                     |
+| view              | 当前 revision 的已有预览；返回 artifact 获取描述；`--url` 只输出 viewer 链接                |
+| find              | 元数据名称 glob、类型、创建日期过滤                                                         |
+| grep / seek / ask | RE2 内容匹配、语义检索、带真实依据的问答                                                    |
+| search            | lexical/hybrid 模式缺接口，返回 NOT_IMPLEMENTED                                             |
+| ws                | ls/info/use、usage/quota/balance/members、invite/remove/role、edit --name                   |
+| ops               | capabilities、convert --to pdf、render --to webp；指定 --output 才创建受管文件              |
+| jobs              | status/result 接受返回的 dfj1 句柄，可跨机器查询；ls/cancel 不支持                          |
+| version           | ls、restore --to REVISION_ID；恢复创建新版本                                                |
+| pptx / docx       | capabilities；结构 info 尚未实现                                                            |
 
 `ws new/rm/stats`、空间描述编辑、问答会话、整文件 extract/resize/crop/trim/transcribe/thumbnail 提供严格占位。公开角色值为 manager、teammate；成员管理目前使用用户 ID，不支持邮箱解析。
 

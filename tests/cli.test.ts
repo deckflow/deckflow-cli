@@ -90,6 +90,7 @@ async function cli(
   env: NodeJS.ProcessEnv = {},
   cwd = temp,
   stdin?: string,
+  onSpawn?: (child: ReturnType<typeof spawn>) => void,
 ) {
   return new Promise<{ code: number | null; stdout: string; stderr: string }>(
     (done, fail) => {
@@ -114,6 +115,7 @@ async function cli(
       child.stderr.on("data", (data) => (stderr += data));
       child.on("error", fail);
       child.on("close", (code) => done({ code, stdout, stderr }));
+      onSpawn?.(child);
       child.stdin.end(stdin);
     },
   );
@@ -3031,5 +3033,246 @@ it("issue 5: get uses the metered download grant and keeps integrity and quota e
   expect(rawReads).toBe(1);
   await expect(stat(join(temp, "denied"))).rejects.toMatchObject({
     code: "ENOENT",
+  });
+});
+
+describe("browser callback authorization", () => {
+  for (const mode of [undefined, "token", "apiKey"])
+    it(`saves ${mode ?? "default API key"} only after the local callback`, async () => {
+      const credentials = join(temp, ".deckflow", "credentials");
+      await mkdir(join(temp, ".deckflow"), { recursive: true });
+      await writeFile(
+        credentials,
+        JSON.stringify({
+          token: "previous",
+          tokenApiRoot: base + "/api",
+          spaceId: "saved-space",
+        }),
+      );
+      let exchanges = 0;
+      let callbackUrl = "";
+      let callbackTask: Promise<void> | undefined;
+      handler = (req, res, path, body) => {
+        expect(req.headers.authorization).toBeUndefined();
+        const data = JSON.parse(body.toString());
+        if (path === "/api/cli/authorizations") {
+          expect(data.mode).toBe(mode?.toLowerCase());
+          expect(data.state).toMatch(/^[\w-]{43}$/);
+          callbackUrl = data.redirectUri + "?state=" + data.state;
+          callbackTask = (async () => {
+            const invalid = await fetch(data.redirectUri + "?state=wrong");
+            expect(invalid.status).toBe(400);
+            expect(exchanges).toBe(0);
+            expect(JSON.parse(await readFile(credentials, "utf8")).token).toBe(
+              "previous",
+            );
+            const response = await fetch(callbackUrl);
+            expect(response.status).toBe(200);
+          })();
+          return json(res, {
+            deviceCode: "d".repeat(43),
+            userCode: "ABCDEF1234",
+            verificationPath: "/cli/authorize?user_code=ABCDEF1234",
+            expiresIn: 600,
+            interval: 5,
+          });
+        }
+        if (path === "/api/cli/authorizations/exchange") {
+          exchanges++;
+          expect(data.deviceCode).toBe("d".repeat(43));
+          return json(res, {
+            status: "redeemed",
+            mode: mode === "token" ? "token" : "apikey",
+            credential: "new-secret",
+            userId: "user1",
+            expiredAt: null,
+            keyId: "key1",
+            scope: "read",
+          });
+        }
+      };
+      const run = await cli(
+        [
+          "auth",
+          "login",
+          "--no-browser",
+          "--json",
+          ...(mode ? ["--mode", mode] : []),
+        ],
+        { DECKFLOW_TOKEN: "" },
+      );
+      await callbackTask;
+      expect(result(run)).toMatchObject({
+        authenticated: true,
+        mode: mode === "token" ? "token" : "apikey",
+        user: { id: "user1" },
+      });
+      expect(exchanges).toBe(1);
+      expect(requests.some((r) => r.path.endsWith("/cancel"))).toBe(false);
+      expect(run.stderr).toContain(
+        base + "/cli/authorize?user_code=ABCDEF1234",
+      );
+      expect(run.stdout + run.stderr).not.toContain("new-secret");
+      expect(run.stdout + run.stderr).not.toContain("d".repeat(43));
+      expect(JSON.parse(await readFile(credentials, "utf8"))).toMatchObject({
+        token: "new-secret",
+        tokenApiRoot: base + "/api",
+        spaceId: "saved-space",
+      });
+      expect((await stat(credentials)).mode & 0o777).toBe(0o600);
+      await expect(fetch(callbackUrl)).rejects.toThrow();
+    });
+
+  for (const outcome of ["denied", "timeout", "pending", "unsafe-link"])
+    it(`preserves credentials and cleans up on ${outcome}`, async () => {
+      const credentials = join(temp, ".deckflow", "credentials");
+      await mkdir(join(temp, ".deckflow"), { recursive: true });
+      const previous = JSON.stringify({
+        token: "previous",
+        tokenApiRoot: base + "/api",
+      });
+      await writeFile(credentials, previous);
+      let callbackUrl = "";
+      let callbackTask: Promise<Response> | undefined;
+      handler = (_, res, path, body) => {
+        const data = JSON.parse(body.toString());
+        if (path === "/api/cli/authorizations") {
+          callbackUrl = data.redirectUri + "?state=" + data.state;
+          if (outcome !== "timeout" && outcome !== "unsafe-link")
+            callbackTask = fetch(callbackUrl);
+          return json(res, {
+            deviceCode: "d".repeat(43),
+            userCode: "ABCDEF1234",
+            verificationPath:
+              outcome === "unsafe-link"
+                ? "https://evil.example/authorize"
+                : "/cli/authorize?user_code=ABCDEF1234",
+            expiresIn: 600,
+            interval: 5,
+          });
+        }
+        if (path.endsWith("/exchange")) return json(res, { status: outcome });
+        if (path.endsWith("/cancel")) return json(res, { status: "cancelled" });
+      };
+      const run = await cli(
+        ["auth", "login", "--no-browser", "--json", "--wait-timeout", "500ms"],
+        { DECKFLOW_TOKEN: "" },
+      );
+      await callbackTask;
+      expect(result(run, outcome === "unsafe-link" ? 2 : 3).code).toBe(
+        {
+          denied: "AUTH_DENIED",
+          timeout: "AUTH_EXPIRED",
+          pending: "AUTH_CALLBACK_FAILED",
+          "unsafe-link": "INVALID_AUTH_RESPONSE",
+        }[outcome],
+      );
+      expect(requests.filter((r) => r.path.endsWith("/exchange"))).toHaveLength(
+        outcome === "timeout" || outcome === "unsafe-link" ? 0 : 1,
+      );
+      expect(requests.filter((r) => r.path.endsWith("/cancel"))).toHaveLength(
+        1,
+      );
+      expect(await readFile(credentials, "utf8")).toBe(previous);
+      await expect(fetch(callbackUrl)).rejects.toThrow();
+    });
+
+  for (const signal of ["SIGINT", "SIGTERM"] as const)
+    it(`cancels the remote request and closes its listener on ${signal}`, async () => {
+      let callbackUrl = "";
+      handler = (_, res, path, body) => {
+        if (path.endsWith("/cancel")) return json(res, { status: "cancelled" });
+        const data = JSON.parse(body.toString());
+        callbackUrl = data.redirectUri + "?state=" + data.state;
+        return json(res, {
+          deviceCode: "d".repeat(43),
+          userCode: "ABCDEF1234",
+          verificationPath: "/cli/authorize?user_code=ABCDEF1234",
+          expiresIn: 600,
+          interval: 5,
+        });
+      };
+      const run = await cli(
+        ["auth", "login", "--no-browser", "--json"],
+        { DECKFLOW_TOKEN: "" },
+        temp,
+        undefined,
+        (child) => {
+          child.stderr!.on("data", (chunk) => {
+            if (String(chunk).includes("正在等待浏览器授权"))
+              child.kill(signal);
+          });
+        },
+      );
+      expect(result(run, 2).code).toBe("CANCELLED");
+      expect(requests.filter((r) => r.path.endsWith("/exchange"))).toHaveLength(
+        0,
+      );
+      expect(requests.filter((r) => r.path.endsWith("/cancel"))).toHaveLength(
+        1,
+      );
+      await expect(fetch(callbackUrl)).rejects.toThrow();
+    });
+
+  it("retries rate limited redemption after Retry-After without polling pending authorization", async () => {
+    let exchanges = 0;
+    let firstAttempt = 0;
+    let callbackTask: Promise<Response> | undefined;
+    handler = (_, res, path, body) => {
+      if (path === "/api/cli/authorizations") {
+        const data = JSON.parse(body.toString());
+        callbackTask = fetch(data.redirectUri + "?state=" + data.state);
+        return json(res, {
+          deviceCode: "d".repeat(43),
+          userCode: "ABCDEF1234",
+          verificationPath: "/cli/authorize?user_code=ABCDEF1234",
+          expiresIn: 600,
+          interval: 5,
+        });
+      }
+      if (path.endsWith("/exchange")) {
+        if (++exchanges === 1) {
+          firstAttempt = Date.now();
+          res.setHeader("Retry-After", "1");
+          return json(res, { message: "Limited" }, 429);
+        }
+        expect(Date.now() - firstAttempt).toBeGreaterThanOrEqual(990);
+        return json(res, {
+          status: "redeemed",
+          mode: "token",
+          credential: "new-token",
+          userId: "user1",
+          expiredAt: "2099-01-01T00:00:00Z",
+        });
+      }
+    };
+    const run = await cli(
+      ["auth", "login", "--mode", "token", "--no-browser", "--json"],
+      { DECKFLOW_TOKEN: "" },
+    );
+    await callbackTask;
+    expect(result(run).authenticated).toBe(true);
+    expect(exchanges).toBe(2);
+  });
+
+  it("validates mode options before creating an authorization", async () => {
+    expect(
+      result(await cli(["auth", "login", "--mode", "invalid", "--json"]), 2)
+        .code,
+    ).toBe("INVALID_ARGUMENT");
+    expect(
+      result(
+        await cli([
+          "auth",
+          "login",
+          "--mode",
+          "token",
+          "--token-stdin",
+          "--json",
+        ]),
+        2,
+      ).code,
+    ).toBe("INVALID_ARGUMENT");
+    expect(requests).toHaveLength(0);
   });
 });

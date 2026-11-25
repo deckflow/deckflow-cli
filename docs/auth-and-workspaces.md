@@ -14,7 +14,24 @@ deckflow ws use WORKSPACE_ID
 
 优先级：`--ws` → `DECKFLOW_WORKSPACE` → 用户默认空间。旧 `--space`、`DECKFLOW_SPACE`、`.deckflow.json` 和 `space use --local` 已移除。显示名称不作为 slug；当前接口以稳定空间 ID 使用。
 
-`DECKFLOW_API_URL/DECKFLOW_WEB_URL` 覆盖配置；`DECKFLOW_TOKEN` 优先于本地凭据。支持 `auth login --token-stdin`。退出登录只清除本地凭据，不撤销远端 API Key，也不清除环境变量。
+## 浏览器授权
+
+```sh
+deckflow auth login                     # 网页默认 API Key，可切换 Token
+deckflow auth login --mode apikey       # 指定 API Key（也接受 apiKey）
+deckflow auth login --mode token        # 指定 Token
+deckflow auth login --no-browser        # 手动在本机浏览器打开链接
+```
+
+需要配置 API 与 Web 地址，非本机地址必须使用 HTTPS。CLI 在 `127.0.0.1` 随机端口监听 `/callback`，创建请求时绑定随机 state；网页批准或拒绝后跳转到本地回调。CLI 校验 state 和 Host 后，一次性调用 `cliAuth.exchange` 领取结果，不轮询等待授权。凭据只经 API 响应交付，不出现在回调 URL、终端或 JSON 输出中；仅网络或限流失败会做有限重试并遵守 Retry-After。
+
+网页默认创建只读、无到期时间的 API Key，可自行选择读写权限和到期时间；在 `/account/keys` 管理和撤销。Token 复用当前网页会话，网页退出、会话清理或到期都会影响 CLI。
+
+Ctrl+C、SIGTERM 或等待超时会取消交接并关闭本地服务，`--wait-timeout` 默认 10m。授权失败或取消时保留原凭据和默认工作空间；成功后才通过原子写入替换凭据。本地回调要求浏览器能访问 CLI 所在机器的 loopback；远端终端可使用端口转发，或以 `--token-stdin` 导入凭据。
+
+需要部署包含回调扩展的 DeckBase API 与 WebUI。旧设备轮询接口仍保留供其他客户端使用。
+
+`DECKFLOW_API_URL/DECKFLOW_WEB_URL` 覆盖配置；`DECKFLOW_TOKEN` 优先于本地凭据。支持 `auth login --token-stdin` 导入 API Key 或 Token；设置了 `DECKFLOW_TOKEN` 时，未指定 `--mode` 的登录命令沿用环境变量导入，显式 `--mode` 会发起浏览器授权。`--mode` 与 `--token-stdin` 不能同时使用。退出登录只清除本地凭据，不撤销远端 API Key，也不清除环境变量。
 
 当前只有一个 CLI 用户配置。`config set space ID` 仍可保存默认空间；推荐使用验证访问的 `ws use ID`。状态文件沿用 XDG_CONFIG_HOME/deckflow/operations，或 ~/.config/deckflow/operations。
 
