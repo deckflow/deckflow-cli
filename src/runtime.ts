@@ -46,6 +46,44 @@ function remote(value: string) {
     throw usage("远端对象需要绝对路径或 id:<id>");
   return value.length > 1 ? value.replace(/\/$/, "") : value;
 }
+function formatCategory(format: unknown) {
+  const groups = {
+    image: [
+      "png",
+      "jpg",
+      "jpeg",
+      "webp",
+      "gif",
+      "svg",
+      "avif",
+      "bmp",
+      "tiff",
+      "heic",
+    ],
+    audio: ["mp3", "wav", "ogg", "m4a", "flac", "aac", "opus"],
+    video: ["mp4", "mov", "webm", "mkv", "avi"],
+    document: [
+      "pdf",
+      "docx",
+      "pptx",
+      "xlsx",
+      "keynote",
+      "txt",
+      "md",
+      "json",
+      "xml",
+      "csv",
+      "html",
+      "rtf",
+      "doc",
+      "xls",
+      "ppt",
+    ],
+  };
+  return Object.entries(groups).find(([, formats]) =>
+    formats.includes(String(format).toLowerCase()),
+  )?.[0];
+}
 async function all(api: ApiCall, ws: string, parent: string | null) {
   const result: ObjectRow[] = [];
   for (const kind of ["directory", "file"] as const) {
@@ -985,6 +1023,13 @@ export function commands(root: Command, register: Register) {
         const matched: ObjectRow[] = [];
         for (const r of rows) {
           if (r.kind !== "file") continue;
+          const category = formatCategory(r.format);
+          if (
+            category &&
+            !o.type.includes("/") &&
+            category !== o.type.toLowerCase()
+          )
+            continue;
           const c = await (
             await ctx.client()
           )("file.content", { spaceId: await ctx.space(), fileId: r.id });

@@ -2071,3 +2071,31 @@ it("issue 86: mkdir parents recovers a concurrently created parent", async () =>
   ).toBe("/Race/Child");
   expect(child).toBe(true);
 });
+
+it("issue 107: known nonmatching formats do not trigger content lookups", async () => {
+  const rows = [
+    ...Array.from({ length: 120 }, (_, i) => ({
+      ...sampleFile,
+      id: "p" + i,
+      name: i + ".pdf",
+      format: "pdf",
+    })),
+    { ...sampleFile, id: "image", name: "art.webp", format: "webp" },
+  ];
+  handler = (_, res, path) => {
+    if (path.endsWith("/content"))
+      return json(res, { mediaType: "image/webp" });
+    if (path.includes("/folders")) return json(res, { rows: [], count: 0 });
+    const offset = Number(
+      new URL(base + path).searchParams.get("_startIndex") ?? 0,
+    );
+    return json(res, {
+      rows: rows.slice(offset, offset + 100),
+      count: rows.length,
+    });
+  };
+  expect(
+    result(await cli(["find", "/", "--type", "image", "--json"])).items[0].id,
+  ).toBe("image");
+  expect(requests.filter((r) => r.path.endsWith("/content"))).toHaveLength(1);
+});
