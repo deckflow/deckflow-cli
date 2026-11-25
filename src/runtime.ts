@@ -1523,9 +1523,12 @@ export function commands(root: Command, register: Register) {
             });
           const persisted: unknown[] = [];
           for (const output of outputs) {
+            const suffix = `-${output.ordinal + 1}.${output.format ?? "webp"}`;
             const name =
               target?.name ??
-              `${row.name.replace(/\.[^.]+$/, "")}-${output.ordinal + 1}.${output.format ?? "webp"}`;
+              Array.from(row.name.replace(/\.[^.]+$/, ""))
+                .slice(0, 255 - Array.from(suffix).length)
+                .join("") + suffix;
             const parentId = target
               ? target.parentId
               : outputDir!.id === "root"

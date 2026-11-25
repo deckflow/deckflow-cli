@@ -2175,3 +2175,37 @@ it("issue 53: a closed stdout reader exits cleanly without an EPIPE stack", asyn
   expect(run.code).toBe(0);
   expect(run.stderr).toBe("");
 });
+
+it("issue 95: generated render names remain within the backend Unicode name limit", async () => {
+  const source = { ...sampleFile, name: "x".repeat(251) + ".pdf" };
+  handler = (req, res, path, body) => {
+    if (path.includes("/conversions"))
+      return json(res, {
+        operationId: "op",
+        status: "succeeded",
+        outputs: [{ artifactId: "a", ordinal: 0, format: "webp" }],
+      });
+    if (req.method === "POST") {
+      const p = JSON.parse(body.toString());
+      expect(Array.from(p.name).length).toBe(255);
+      expect(p.name).toMatch(/-1\.webp$/);
+      return json(res, { ...sampleFile, id: "out" });
+    }
+    if (path.includes("/folders")) return json(res, { rows: [], count: 0 });
+    return json(res, { rows: [source], count: 1 });
+  };
+  expect(
+    result(
+      await cli([
+        "ops",
+        "render",
+        "/" + source.name,
+        "--to",
+        "webp",
+        "--output",
+        "/",
+        "--json",
+      ]),
+    ).output[0].id,
+  ).toBe("out");
+});
