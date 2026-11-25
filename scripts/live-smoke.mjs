@@ -56,6 +56,19 @@ try {
   console.log("上传下载、覆盖版本、恢复、复制移动验证通过");
 } catch (error) {
   console.error("冒烟主流程失败：", error.stdout?.toString() || error.message);
+  if (!created) {
+    try {
+      created = run(["info", folder]).kind === "directory";
+    } catch {
+      console.error(
+        JSON.stringify({
+          cleanup_target: folder,
+          workspace_id: space,
+          creation_may_have_committed: true,
+        }),
+      );
+    }
+  }
   throw error;
 } finally {
   try {

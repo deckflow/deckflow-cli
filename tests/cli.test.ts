@@ -2308,3 +2308,19 @@ it("issue 66: smoke diagnostics retain both primary and cleanup failures", async
   expect(run.stderr).toContain("UPLOAD_503");
   expect(run.stderr).toContain("CLEANUP_403");
 });
+
+it("issue 65: smoke checks uncertain creation and cleans the committed directory", async () => {
+  const log = join(temp, "commands");
+  const run = await smokeFixture(
+    `const a=process.argv[2];require("fs").appendFileSync(process.env.SMOKE_LOG,a+"\\n");if(a==="mkdir"){console.log(JSON.stringify({ok:false,error:{code:"BACKEND_UNAVAILABLE"}}));process.exit(5);}console.log(JSON.stringify({ok:true,data:a==="info"?{kind:"directory"}:a==="rm"?{job_id:"cleanup"}:a==="jobs"?{state:"succeeded"}:{}}));`,
+    false,
+    { SMOKE_LOG: log },
+  );
+  expect(run.code).not.toBe(0);
+  expect((await readFile(log, "utf8")).trim().split("\n")).toEqual([
+    "mkdir",
+    "info",
+    "rm",
+    "jobs",
+  ]);
+});
