@@ -1,7 +1,8 @@
 import { Command } from "commander";
 import { constants as bufferConstants } from "node:buffer";
+import lockfile from "proper-lockfile";
 import { basename, dirname, join } from "node:path";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { createHash, randomUUID } from "node:crypto";
 import { commands as legacy } from "./commands.js";
@@ -1861,13 +1862,52 @@ export function commands(root: Command, register: Register) {
         to: o.to,
       });
       if (preview) return preview;
-      return (await ctx.client())("revision.restore", {
+      let request = {
         spaceId: await ctx.space(),
         fileId: row.id,
         revisionId: o.to!,
         expectedCurrentRevisionId: row.currentRevisionId ?? null,
         idempotencyKey: o.idempotencyKey ?? randomUUID(),
-      });
+      };
+      if (o.idempotencyKey !== undefined) {
+        const key = createHash("sha256")
+          .update(
+            JSON.stringify([
+              await ctx.apiUrl(),
+              await ctx.credentialScope(),
+              request.spaceId,
+              o.idempotencyKey,
+            ]),
+          )
+          .digest("hex");
+        const path = join(ctx.stateDir, "restore-requests", key + ".json");
+        await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+        const release = await lockfile.lock(path, {
+          realpath: false,
+          retries: { retries: 30, minTimeout: 25, maxTimeout: 250 },
+        });
+        try {
+          const previous = await readJson<typeof request>(path);
+          if (
+            previous &&
+            ["spaceId", "fileId", "revisionId", "idempotencyKey"].some(
+              (key) =>
+                previous[key as keyof typeof request] !==
+                request[key as keyof typeof request],
+            )
+          )
+            throw new CliError(
+              "IDEMPOTENCY_CONFLICT",
+              "此幂等键已用于不同的版本恢复请求",
+              6,
+            );
+          if (previous) request = previous;
+          else await saveJson(path, request);
+        } finally {
+          await release();
+        }
+      }
+      return (await ctx.client())("revision.restore", request);
     },
     (c) => mutate(c).requiredOption("--to <version>"),
   );

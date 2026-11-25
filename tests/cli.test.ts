@@ -2838,3 +2838,35 @@ it("issue 105: fixed-ID deletion replays its original condition after details di
   expect(second.job_id).toBe(first.job_id);
   expect(requests.filter((r) => r.method === "DELETE")).toHaveLength(2);
 });
+
+it("issue 80: restore replays the original current-revision precondition", async () => {
+  let current = "r1";
+  const expected: string[] = [];
+  handler = (req, res, path, body) => {
+    if (req.method === "POST") {
+      expected.push(JSON.parse(body.toString()).expectedCurrentRevisionId);
+      current = "restored";
+      return json(res, { id: "restored" });
+    }
+    if (path.includes("/folders")) return json(res, { rows: [], count: 0 });
+    if (path.includes("/revisions/old")) return json(res, { id: "old" });
+    return json(res, {
+      rows: [{ ...sampleFile, currentRevisionId: current }],
+      count: 1,
+    });
+  };
+  const args = [
+    "version",
+    "restore",
+    "/" + sampleFile.name,
+    "--to",
+    "old",
+    "--yes",
+    "--idempotency-key",
+    "same",
+    "--json",
+  ];
+  expect(result(await cli(args)).id).toBe("restored");
+  expect(result(await cli(args)).id).toBe("restored");
+  expect(expected).toEqual(["r1", "r1"]);
+});
