@@ -2404,3 +2404,43 @@ it("issue 6: failed new retains the exact source bytes required by its resume co
     await rm(resolve(state.path, ".."), { recursive: true, force: true });
   }
 });
+
+it("issue 47: same upload key in distinct API environments retains separate state", async () => {
+  await writeFile(join(temp, "source"), "fixture");
+  handler = (_, res, path) => {
+    if (path === "/signed") return res.writeHead(503).end();
+    if (path.includes("/upload-sessions"))
+      return json(res, {
+        id: path.startsWith("/one") ? "one" : "two",
+        status: "pending",
+        upload: { url: base + "/signed", method: "PUT", headers: {} },
+      });
+    if (path.endsWith("/spaces/ws")) return json(res, { regionId: "reg" });
+    if (path.includes("/regions"))
+      return json(res, { rows: [{ id: "reg", capabilities: {} }], count: 1 });
+    return json(res, { rows: [], count: 0 });
+  };
+  const first = result(
+    await cli(
+      ["put", "source", "/target", "--idempotency-key", "same", "--json"],
+      { DECKFLOW_API_URL: base + "/one" },
+    ),
+    5,
+  );
+  const second = result(
+    await cli(
+      ["put", "source", "/target", "--idempotency-key", "same", "--json"],
+      { DECKFLOW_API_URL: base + "/two" },
+    ),
+    5,
+  );
+  expect(first.details.operationId).not.toBe(second.details.operationId);
+  const resumed = result(
+    await cli(
+      ["put", "LOCAL", "DEST", "--resume", first.details.operationId, "--json"],
+      { DECKFLOW_API_URL: base + "/one" },
+    ),
+    5,
+  );
+  expect(resumed.details.uploadSessionId).toBe("one");
+});

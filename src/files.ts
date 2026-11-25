@@ -531,7 +531,9 @@ export async function upload(
   for (const path of paths) {
     const digest = opts.idempotencyKey
       ? createHash("sha256")
-          .update(spaceId + ":" + opts.idempotencyKey)
+          .update(
+            JSON.stringify([await ctx.apiUrl(), spaceId, opts.idempotencyKey]),
+          )
           .digest("hex")
           .slice(0, 32)
       : undefined;
