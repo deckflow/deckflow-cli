@@ -1562,6 +1562,7 @@ export function commands(root: Command, register: Register) {
             state: task.status,
             output: task.outputs.length ? task.outputs : null,
           };
+        const persisted: unknown[] = [];
         try {
           const done = await poll(
             (signal) =>
@@ -1625,7 +1626,6 @@ export function commands(root: Command, register: Register) {
             throw new CliError("RESULT_NOT_AVAILABLE", "任务产物已不可用", 6, {
               job_id: handle,
             });
-          const persisted: unknown[] = [];
           for (const output of outputs) {
             const suffix = `-${output.ordinal + 1}.${output.format ?? "webp"}`;
             const name =
@@ -1640,11 +1640,6 @@ export function commands(root: Command, register: Register) {
                 : outputDir!.id;
             const outputPath =
               target?.path ?? outputDir!.path.replace(/\/$/, "") + "/" + name;
-            if (await maybe(ctx, outputPath))
-              throw new CliError("OBJECT_EXISTS", "输出目标存在", 6, {
-                job_id: handle,
-                results: persisted,
-              });
             const created = await (
               await ctx.client()
             )("file.add", {
@@ -1679,7 +1674,9 @@ export function commands(root: Command, register: Register) {
         } catch (e) {
           if (e instanceof CliError) throw e;
           if ((e as { status?: number }).status)
-            throw Object.assign(e as object, { operation: { job_id: handle } });
+            throw Object.assign(e as object, {
+              operation: { job_id: handle, results: persisted },
+            });
           throw new CliError(
             "BACKEND_UNAVAILABLE",
             "等待超时，服务端任务未取消",

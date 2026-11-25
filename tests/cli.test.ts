@@ -2766,3 +2766,54 @@ it("issue 73: preview and persisted renders enumerate all screenshot pages", asy
   ).toHaveLength(101);
   expect(stored).toBe(101);
 }, 20000);
+
+it("issue 21: render persistence safely replays saved pages and resumes missing ones", async () => {
+  const stored = new Map<string, typeof sampleFile>();
+  let failSecond = true;
+  const outputs = [0, 1].map((ordinal) => ({
+    artifactId: "a",
+    itemId: "i" + ordinal,
+    ordinal,
+    format: "webp",
+    mediaType: "image/webp",
+  }));
+  handler = (req, res, path, body) => {
+    if (path.includes("/conversions"))
+      return json(res, { operationId: "op", status: "succeeded", outputs });
+    if (req.method === "POST" && path.endsWith("/files")) {
+      const p = JSON.parse(body.toString());
+      if (p.name.endsWith("-2.webp") && failSecond) {
+        failSecond = false;
+        return json(res, {}, 503);
+      }
+      if (!stored.has(p.idempotencyKey))
+        stored.set(p.idempotencyKey, {
+          ...sampleFile,
+          id: "out" + stored.size,
+          name: p.name,
+        });
+      return json(res, stored.get(p.idempotencyKey));
+    }
+    if (path.includes("/folders")) return json(res, { rows: [], count: 0 });
+    return json(res, {
+      rows: [sampleFile, ...stored.values()],
+      count: stored.size + 1,
+    });
+  };
+  const args = [
+    "ops",
+    "render",
+    "/" + sampleFile.name,
+    "--to",
+    "webp",
+    "--output",
+    "/",
+    "--json",
+  ];
+  const failure = result(await cli(args), 5);
+  expect(failure.details.results).toHaveLength(1);
+  const success = result(await cli(args));
+  expect(success.output).toHaveLength(2);
+  expect(stored.size).toBe(2);
+  expect(success.output[0].id).toBe(failure.details.results[0].id);
+});
