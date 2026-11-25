@@ -2097,5 +2097,29 @@ it("issue 107: known nonmatching formats do not trigger content lookups", async 
   expect(
     result(await cli(["find", "/", "--type", "image", "--json"])).items[0].id,
   ).toBe("image");
-  expect(requests.filter((r) => r.path.endsWith("/content"))).toHaveLength(1);
+  expect(requests.filter((r) => r.path.endsWith("/content"))).toHaveLength(0);
+});
+
+it("issue 18: inaccessible content does not erase readable metadata or other matches", async () => {
+  handler = (_, res, path) => {
+    if (path.includes("/folders")) return json(res, { rows: [], count: 0 });
+    if (path.includes("/f1/") && path.endsWith("/content"))
+      return json(res, {}, 404);
+    if (path.endsWith("/content"))
+      return json(res, { mediaType: "image/webp", bytes: 1 });
+    return json(res, {
+      rows: [
+        { ...sampleFile, name: "cold.webp" },
+        { ...sampleFile, id: "warm", name: "warm.webp" },
+      ],
+      count: 2,
+    });
+  };
+  const info = result(await cli(["info", "/cold.webp", "--json"]));
+  expect(info.id).toBe("f1");
+  expect(info.content_status).toBe("unavailable");
+  const found = result(await cli(["find", "/", "--type", "image", "--json"]));
+  expect(found.items.map((r: { id: string }) => r.id)).toEqual(["warm"]);
+  expect(found.partial).toBe(true);
+  expect(found.unavailable_items[0].id).toBe("f1");
 });

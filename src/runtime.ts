@@ -430,7 +430,12 @@ export function commands(root: Command, register: Register) {
       spaceId: await ctx.space(),
       fileId: row.id,
       revisionId: row.currentRevisionId,
+    }).catch((error) => {
+      const status = (error as { status?: number }).status;
+      if (![403, 404].includes(status ?? 0)) throw error;
+      return null;
     });
+    if (!content) return { ...row, content_status: "unavailable" };
     return { ...row, mime_type: content.mediaType, size_bytes: content.bytes };
   });
   add(root, "cat <file>", "读取已有 UTF-8 文本", async (ctx, [path]) => {
@@ -1019,6 +1024,7 @@ export function commands(root: Command, register: Register) {
         );
         rows = rows.filter((x) => regex.test(x.name));
       }
+      const unavailable: { id: string; path: string; status?: number }[] = [];
       if (o.type) {
         const matched: ObjectRow[] = [];
         for (const r of rows) {
@@ -1030,9 +1036,21 @@ export function commands(root: Command, register: Register) {
             category !== o.type.toLowerCase()
           )
             continue;
+          if (category && category === o.type.toLowerCase()) {
+            matched.push(r);
+            continue;
+          }
           const c = await (
             await ctx.client()
-          )("file.content", { spaceId: await ctx.space(), fileId: r.id });
+          )("file.content", { spaceId: await ctx.space(), fileId: r.id }).catch(
+            (error) => {
+              const status = (error as { status?: number }).status;
+              if (![403, 404].includes(status ?? 0)) throw error;
+              unavailable.push({ id: r.id, path: r.path, status });
+              return null;
+            },
+          );
+          if (!c) continue;
           const t = o.type.toLowerCase();
           const mediaType = c.mediaType.toLowerCase();
           const yes = t.includes("/")
@@ -1063,7 +1081,7 @@ export function commands(root: Command, register: Register) {
               : Date.parse(String(x.createdAt)) >= time,
           );
         }
-      return listing(
+      const result = listing(
         rows,
         o,
         JSON.stringify([
@@ -1076,6 +1094,9 @@ export function commands(root: Command, register: Register) {
           o.before,
         ]),
       );
+      return unavailable.length
+        ? { ...result, partial: true, unavailable_items: unavailable }
+        : result;
     },
     (c) =>
       paginate(c)
