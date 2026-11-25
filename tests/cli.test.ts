@@ -2045,3 +2045,29 @@ it("issue 87: nested mkdir traverses each parent only once", async () => {
   expect(folders).toHaveLength(12);
   expect(requests.filter((r) => r.method === "GET")).toHaveLength(24);
 });
+
+it("issue 86: mkdir parents recovers a concurrently created parent", async () => {
+  let raced = false,
+    child = false;
+  handler = (req, res, path, body) => {
+    if (req.method === "POST") {
+      const p = JSON.parse(body.toString());
+      if (p.name === "Race") {
+        raced = true;
+        return json(res, {}, 409);
+      }
+      expect(p).toMatchObject({ name: "Child", parentId: "race" });
+      child = true;
+      return json(res, { ...p, id: "child", rowVersion: 1 });
+    }
+    const rows =
+      path.includes("/folders") && !path.includes("parentId=") && raced
+        ? [{ id: "race", name: "Race", rowVersion: 1 }]
+        : [];
+    return json(res, { rows, count: rows.length });
+  };
+  expect(
+    result(await cli(["mkdir", "/Race/Child", "--parents", "--json"])).path,
+  ).toBe("/Race/Child");
+  expect(child).toBe(true);
+});

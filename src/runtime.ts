@@ -479,17 +479,28 @@ export function commands(root: Command, register: Register) {
             missing = true;
             continue;
           }
-          const created = await api("folder.add", {
-            spaceId: ws,
-            parentId,
-            name: parts[i],
-          });
-          row = {
-            ...created,
-            kind: "directory",
-            path: current,
-            workspace_id: ws,
-          } as ObjectRow;
+          try {
+            const created = await api("folder.add", {
+              spaceId: ws,
+              parentId,
+              name: parts[i],
+            });
+            row = {
+              ...created,
+              kind: "directory",
+              path: current,
+              workspace_id: ws,
+            } as ObjectRow;
+          } catch (error) {
+            if (!o.parents || (error as { status?: number }).status !== 409)
+              throw error;
+            const concurrent: ObjectRow[] = (
+              await all(api, ws, parentId)
+            ).filter((item) => item.name === parts[i]);
+            if (concurrent.length !== 1 || concurrent[0].kind !== "directory")
+              throw error;
+            row = concurrent[0];
+          }
         }
         parentId = row.id;
         result = { ...row, kind: "directory", path: current, workspace_id: ws };
