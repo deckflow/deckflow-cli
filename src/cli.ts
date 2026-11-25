@@ -223,7 +223,7 @@ commands(root, (cmd, run) => {
       throw new CliError("INVALID_ARGUMENT", "--timeout 必须为正整数秒", 2);
     const ctx = new Context(global);
     workspaceId = (await ctx.spaceInfo()).id;
-    await ctx.initialize();
+    if (cmd.name() !== "capabilities") await ctx.initialize();
     const result = await run(ctx, values.slice(0, -2) as string[], options);
     workspaceId = (await ctx.spaceInfo()).id;
     if (

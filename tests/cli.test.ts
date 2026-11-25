@@ -1719,3 +1719,14 @@ it("issue 103: rejects restore conditions the backend cannot enforce atomically"
   ).toBe("UNSUPPORTED_OPERATION");
   expect(requests).toEqual([]);
 });
+
+it("issue 49: local capabilities never create authentication state", async () => {
+  expect(
+    result(await cli(["ops", "capabilities", "--json"], { DECKFLOW_TOKEN: "" }))
+      .items.length,
+  ).toBeGreaterThan(0);
+  await expect(stat(join(temp, ".deckflow"))).rejects.toMatchObject({
+    code: "ENOENT",
+  });
+  expect(requests).toEqual([]);
+});
