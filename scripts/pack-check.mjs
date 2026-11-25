@@ -1,6 +1,14 @@
 import { execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:http";
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import {
+  lstat,
+  mkdtemp,
+  readFile,
+  readdir,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, resolve, join } from "node:path";
 import assert from "node:assert/strict";
@@ -29,7 +37,12 @@ async function run(args, env = {}) {
   return new Promise((ok, fail) => {
     const child = spawn(
       process.execPath,
-      [join(temp, "node_modules/@deckflow/deckflow-cli/dist/cli.js"), ...args],
+      [
+        process.platform === "win32"
+          ? join(temp, "node_modules/@deckflow/deckflow-cli/dist/cli.js")
+          : join(temp, "node_modules/.bin/deckflow"),
+        ...args,
+      ],
       {
         cwd: temp,
         env: { ...process.env, HOME: temp, USERPROFILE: temp, ...env },
@@ -70,7 +83,7 @@ try {
     join(temp, "package.json"),
     JSON.stringify({
       private: true,
-      scripts: { "bin:check": "deckflow --version" },
+      scripts: { "bin:check": "./node_modules/.bin/deckflow --version" },
     }),
   );
   await writeFile(
@@ -94,6 +107,36 @@ try {
     expectedVersion,
     "Installed package version must match the release target",
   );
+  assert.equal(
+    metadata.bin?.deckflow,
+    "dist/cli.js",
+    "Package must declare its deckflow entry",
+  );
+  const localBin = join(temp, "node_modules/.bin/deckflow");
+  if (process.platform === "win32") {
+    assert.ok(
+      (await lstat(localBin + ".cmd")).isFile(),
+      "Local command shim must exist",
+    );
+    const shim = (await readFile(localBin + ".cmd", "utf8")).replaceAll(
+      "\\",
+      "/",
+    );
+    assert.ok(
+      shim.includes("@deckflow/deckflow-cli/dist/cli.js"),
+      "Command shim must target the installed candidate",
+    );
+  } else {
+    assert.ok(
+      (await lstat(localBin)).isSymbolicLink(),
+      "Local command link must exist",
+    );
+    assert.equal(
+      await realpath(localBin),
+      await realpath(join(installed, metadata.bin.deckflow)),
+      "Command link must target the installed candidate",
+    );
+  }
   const readme = await readFile(join(installed, "README.md"), "utf8");
   assert.ok(
     readme.includes(
