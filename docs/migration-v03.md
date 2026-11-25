@@ -2,6 +2,18 @@
 
 本次直接切换命令契约，不提供旧业务别名。登录凭据及用户默认空间保留。
 
+## 从旧 npm 包迁移
+
+旧包 `@deckflow/cli` 和新包 `@deckflow/deckflow-cli` 都提供全局命令 `deckflow`。在同一 npm global prefix 中直接安装新包可能报 `EEXIST`；先卸载旧包，再安装新包：
+
+```sh
+npm uninstall -g @deckflow/cli
+npm install -g @deckflow/deckflow-cli --registry=https://registry.npmjs.org
+deckflow --version
+```
+
+两步应使用同一个 Node/npm 环境及 global prefix。无需删除 `~/.deckflow/credentials`；包卸载和凭据清理是独立操作。
+
 | 旧入口                         | 新入口                                      |
 | ------------------------------ | ------------------------------------------- |
 | space list/get/use             | ws ls/info/use                              |
