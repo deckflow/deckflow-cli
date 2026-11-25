@@ -1740,3 +1740,48 @@ it("issue 42: missing subcommands use the unified JSON error contract", async ()
   expect((await cli(["config", "--help"])).stdout).toContain("Usage:");
   expect(requests).toEqual([]);
 });
+
+async function scriptRun(
+  path: string,
+  env: NodeJS.ProcessEnv = {},
+  cwd = temp,
+) {
+  return new Promise<{ code: number | null; stdout: string; stderr: string }>(
+    (done, fail) => {
+      const child = spawn(node, [path], {
+        cwd,
+        env: { ...process.env, HOME: temp, USERPROFILE: temp, ...env },
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      let stdout = "",
+        stderr = "";
+      child.stdout.on("data", (d) => (stdout += d));
+      child.stderr.on("data", (d) => (stderr += d));
+      child.on("error", fail);
+      child.on("close", (code) => done({ code, stdout, stderr }));
+    },
+  );
+}
+it("issue 67: failed release typechecking prevents packing or publishing", async () => {
+  await mkdir(join(temp, "scripts"));
+  await writeFile(
+    join(temp, "scripts", "release.mjs"),
+    await readFile(resolve("scripts/release.mjs")),
+  );
+  await writeFile(
+    join(temp, "package.json"),
+    JSON.stringify({ name: "@deckflow/deckflow-cli" }),
+  );
+  const stub = join(temp, "pnpm.mjs");
+  await writeFile(
+    stub,
+    'console.log("CHECK " + process.argv.slice(2).join(" ")); process.exit(1);',
+  );
+  const run = await scriptRun(join(temp, "scripts", "release.mjs"), {
+    npm_execpath: stub,
+  });
+  expect(run.code).not.toBe(0);
+  expect(run.stdout).toContain("CHECK typecheck");
+  expect(run.stdout).not.toContain("CHECK build");
+  expect(run.stdout).not.toContain("CHECK pack");
+});

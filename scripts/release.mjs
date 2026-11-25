@@ -28,6 +28,7 @@ const runPnpm = (args) =>
     ? execFileSync(process.execPath, [pnpm, ...args], options)
     : execFileSync("pnpm", args, options);
 
+runPnpm(["typecheck"]);
 runPnpm(["build"]);
 const temp = mkdtempSync(join(tmpdir(), "deckflow-release-"));
 try {
