@@ -1891,3 +1891,24 @@ it("issue 45: retains paid answers and raw evidence when citation lookup fails",
     path_status: "unavailable",
   });
 });
+
+it("issue 85: direct file permissions do not require readable parent directories", async () => {
+  handler = (_, res, path) => {
+    if (path.includes("/folders")) return json(res, {}, 404);
+    if (path === "/raw") return res.end("shared");
+    if (path.endsWith("/content"))
+      return json(res, {
+        url: base + "/raw",
+        mediaType: "text/plain",
+        revisionId: "r1",
+        bytes: 6,
+        sha256: hash("shared"),
+      });
+    return json(res, { ...sampleFile, folderId: "secret" });
+  };
+  const data = result(await cli(["info", "id:f1", "--json"]));
+  expect(data.id).toBe("f1");
+  expect(data.path_status).toBe("unavailable");
+  expect(result(await cli(["get", "id:f1", "shared", "--json"])).bytes).toBe(6);
+  expect(await readFile(join(temp, "shared"), "utf8")).toBe("shared");
+});

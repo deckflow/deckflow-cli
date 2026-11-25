@@ -97,16 +97,28 @@ async function canonical(
   let parent = (row.kind === "file" ? row.folderId : row.parentId) as
     string | null;
   const seen = new Set<string>();
+  let pathAvailable = true;
   while (parent) {
     if (seen.has(parent)) throw usage("目录层级循环");
     seen.add(parent);
-    const p = await api("folder.detail", { spaceId: ws, folderId: parent });
-    names.unshift(p.name);
-    parent = p.parentId ?? null;
+    try {
+      const p = await api("folder.detail", { spaceId: ws, folderId: parent });
+      names.unshift(p.name);
+      parent = p.parentId ?? null;
+    } catch (error) {
+      if (
+        row.kind !== "file" ||
+        ![403, 404].includes((error as { status?: number }).status ?? 0)
+      )
+        throw error;
+      pathAvailable = false;
+      break;
+    }
   }
   return {
     ...row,
-    path: "/" + names.join("/"),
+    path: pathAvailable ? "/" + names.join("/") : "id:" + row.id,
+    ...(pathAvailable ? {} : { path_status: "unavailable" }),
     workspace_id: ws,
     version: Buffer.from(
       JSON.stringify({
