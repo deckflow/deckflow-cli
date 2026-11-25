@@ -17,3 +17,9 @@ deckflow ws use WORKSPACE_ID
 `DECKFLOW_API_URL/DECKFLOW_WEB_URL` 覆盖配置；`DECKFLOW_TOKEN` 优先于本地凭据。支持 `auth login --token-stdin`。退出登录只清除本地凭据，不撤销远端 API Key，也不清除环境变量。
 
 当前只有一个 CLI 用户配置。`config set space ID` 仍可保存默认空间；推荐使用验证访问的 `ws use ID`。状态文件沿用 XDG_CONFIG_HOME/deckflow/operations，或 ~/.config/deckflow/operations。
+
+## API Key 与命令兼容性
+
+工作空间的 `leader` 等角色不代表 API Key 可调用所有接口。`ws members` 使用 `space.users`；`ws usage`、`ws quota`、`ws balance` 使用 `billing.detail`，能否用 API Key 调用取决于部署的服务端允许列表。部分部署会拒绝这些 API Key 请求，即使同一密钥能正常执行 `ws info`。
+
+遇到 HTTP 403 时，检查 JSON 的 `error.details.server_reason`：`API key is not allowed for this method` 表示该接口不接受当前凭据类型；普通授权拒绝则需检查账号权限或 API Key 的 scope。前者需要服务端支持该接口的凭据类型，提升工作空间角色不会解除接口级限制。CLI 保留服务器原因，不会绕过其授权规则。

@@ -38,3 +38,5 @@ deckflow ops convert /Reports/report.docx --to pdf --output /Reports/export.pdf 
 `--if-version` 使用 info 返回的版本；过期版本不会自动刷新重试。`--dry-run` 不提交处理任务或写入资源。永久删除、版本恢复需要 `--yes` 或交互确认。`--timeout` 为正整数秒，默认 30；`--wait-timeout` 使用时长（例如 10m），默认 10m。
 
 预览和产物通过返回的 SDK method/params 或 artifact ID 获取，访问仍由服务端授权；不创建公开分享。处理默认只产生后台 artifact，不自动创建受管文件。render 多产物持久化要求已有输出目录，已有路径始终冲突。
+
+`ws members` 与 `ws usage/quota/balance` 的 API Key 兼容性取决于服务端允许列表。403 时请检查 `error.details.server_reason`，区分接口不接受 API Key 与账号权限不足；详见[认证与工作空间](auth-and-workspaces.md#api-key-与命令兼容性)。
