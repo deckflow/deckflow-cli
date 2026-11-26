@@ -20,6 +20,7 @@ import {
   readJson,
   type Config,
   saveJson,
+  selectAccount,
   stdinText,
   unsupported,
   usage,
@@ -349,7 +350,11 @@ export function commands(root: Command, register: Register) {
         } else
           throw usage("Specify --user with an account ID from auth accounts");
       }
-      if (ctx.opts.dryRun) return { dryRun: true, account_id: selector };
+      if (ctx.opts.dryRun)
+        return {
+          dryRun: true,
+          account_id: selectAccount(accounts, selector).id,
+        };
       return {
         api_url: await ctx.apiUrl(),
         source: "credential-store",
