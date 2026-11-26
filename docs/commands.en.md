@@ -41,9 +41,9 @@ deckflow ops convert /Reports/report.docx --to pdf --output /Reports/export.pdf 
 
 Listings default to 50 entries; `--limit` accepts 1–100. Continue with `--cursor`. Cursors are bound to scope and filters. Offset adaptation does not provide snapshot consistency; large directory traversals read all accessible metadata.
 
-Plain and JSON `ls` entries retain only id, name, kind, path and available format, updatedAt and version fields. Recursive output uses the same fields. Use `info` for full metadata.
+Plain and JSON `ls` entries retain only id, name, kind, path and available format and updatedAt fields. Recursive output uses the same fields. Use `info` for full metadata; neither command exposes the internal `version` token.
 
-`--if-version` accepts the revision returned by info; stale revisions are not silently refreshed. `--dry-run` submits no jobs or resource writes. Permanent deletion and restoration require `--yes` or interactive confirmation. `--timeout` is positive integer seconds, default 30. `--wait-timeout` accepts a duration such as 10m, default 10m.
+`--if-version` accepts an object version token; stale revisions are not silently refreshed. `--dry-run` submits no jobs or resource writes. Permanent deletion and restoration require `--yes` or interactive confirmation. `--timeout` is positive integer seconds, default 30. `--wait-timeout` accepts a duration such as 10m, default 10m.
 
 Retrieve previews and artifacts using returned SDK method/params or artifact IDs. Server authorization still applies; no public share is created. Processing produces backend artifacts by default. Persisting multiple render outputs requires an existing output directory; existing paths always conflict.
 

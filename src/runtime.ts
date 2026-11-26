@@ -438,14 +438,13 @@ export function commands(root: Command, register: Register) {
       const scope = await directory(ctx, path);
       return listing(
         (await tree(ctx, scope, !!o.recursive)).map(
-          ({ id, name, kind, path, format, updatedAt, version }) => ({
+          ({ id, name, kind, path, format, updatedAt }) => ({
             id,
             name,
             kind,
             path,
             ...(format == null ? {} : { format }),
             ...(updatedAt == null ? {} : { updatedAt }),
-            ...(version == null ? {} : { version }),
           }),
         ),
         o,
@@ -460,7 +459,7 @@ export function commands(root: Command, register: Register) {
     (c) => paginate(c).option("--recursive"),
   );
   add(root, "info <object>", t("读取对象信息"), async (ctx, [path]) => {
-    const row = await resolveObject(ctx, path);
+    const { version: _version, ...row } = await resolveObject(ctx, path);
     if (row.kind === "directory") return row;
     const api = await ctx.client();
     if (!row.currentRevisionId)

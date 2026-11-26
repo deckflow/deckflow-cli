@@ -265,6 +265,37 @@ describe("v0.3 contract", () => {
     ).toBe("INVALID_ARGUMENT");
     expect(requests).toEqual([]);
   });
+  it("omits internal version tokens from info output", async () => {
+    let revision: string | null = "r1";
+    let contentAvailable = true;
+    handler = (_, res, path) => {
+      if (path.includes("/folders"))
+        return json(res, {
+          rows: [{ id: "d1", name: "A", parentId: null, rowVersion: 1 }],
+          count: 1,
+        });
+      if (path.endsWith("/content"))
+        return contentAvailable
+          ? json(res, { mediaType: "application/pdf", bytes: 100 })
+          : json(res, {}, 404);
+      return json(res, {
+        rows: [{ ...sampleFile, currentRevisionId: revision }],
+        count: 1,
+      });
+    };
+    for (const path of ["/", "/A", "/" + sampleFile.name]) {
+      for (const state of ["available", "unavailable", "no_revision"]) {
+        revision = state === "no_revision" ? null : "r1";
+        contentAvailable = state === "available";
+        expect(result(await cli(["info", path, "--json"]))).not.toHaveProperty(
+          "version",
+        );
+        const plain = await cli(["info", path]);
+        expect(plain.code).toBe(0);
+        expect(plain.stdout).not.toContain("version:");
+      }
+    }
+  });
   it("lists mixed objects with bound continuation cursors", async () => {
     const listedFile = {
       ...sampleFile,
@@ -290,7 +321,7 @@ describe("v0.3 contract", () => {
     expect(first.items[0].kind).toBe("directory");
     expect(first.items[0].path).toBe("/A");
     expect(Object.keys(first.items[0]).sort()).toEqual(
-      ["id", "name", "kind", "path", "version"].sort(),
+      ["id", "name", "kind", "path"].sort(),
     );
     expect(first.next_cursor).toBeTruthy();
     const second = result(
@@ -314,12 +345,12 @@ describe("v0.3 contract", () => {
       path: "/" + listedFile.name,
       format: listedFile.format,
       updatedAt: listedFile.updatedAt,
-      version: expect.any(String),
     });
     const plain = await cli(["ls", "/", "--ws", "selected"]);
     expect(plain.code).toBe(0);
     expect(plain.stdout).toContain(listedFile.updatedAt);
     for (const field of [
+      "version",
       "rowVersion",
       "currentRevisionId",
       "creatorId",
@@ -836,9 +867,13 @@ describe("issue regressions: configuration and object identity", () => {
       path.includes("/folders")
         ? json(res, { rows: [{ id, name: "A", rowVersion: 1 }], count: 1 })
         : json(res, { rows: [], count: 0 });
-    const old = result(await cli(["info", "/A", "--json"])).version;
+    const old = Buffer.from(
+      JSON.stringify({ id, row: 1, revision: null }),
+    ).toString("base64url");
     id = "new";
-    expect(result(await cli(["info", "/A", "--json"])).version).not.toBe(old);
+    expect(result(await cli(["info", "/A", "--json"]))).not.toHaveProperty(
+      "version",
+    );
     expect(
       result(
         await cli([
@@ -1605,7 +1640,13 @@ describe("issue regressions: selectors, previews and credentials", () => {
         count: exists ? 1 : 0,
       });
     };
-    const token = result(await cli(["ls", "/", "--json"])).items[0].version;
+    const token = Buffer.from(
+      JSON.stringify({
+        id: sampleFile.id,
+        row: sampleFile.rowVersion,
+        revision: sampleFile.currentRevisionId,
+      }),
+    ).toString("base64url");
     expect(
       result(
         await cli([
