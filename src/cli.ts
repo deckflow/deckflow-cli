@@ -11,7 +11,7 @@ import { Command, CommanderError, Help, Option } from "commander";
 import { inspect } from "node:util";
 import { commands } from "./runtime.js";
 import { randomUUID } from "node:crypto";
-import { CliError, Context, type Globals } from "./core.js";
+import { CliError, Context, redactCredentials, type Globals } from "./core.js";
 
 declare const __VERSION__: string;
 
@@ -30,7 +30,9 @@ const billingCodes = new Set([
 ]);
 function redact(value: unknown, token = process.env.DECKFLOW_TOKEN): unknown {
   if (typeof value === "string") {
-    const safe = token ? value.split(token).join("[REDACTED]") : value;
+    const safe = redactCredentials(
+      token ? value.split(token).join("[REDACTED]") : value,
+    );
     return safe
       .replace(/\bBearer\s+[^\s,;"']+/gi, "Bearer [REDACTED]")
       .replace(/\bdbk_[a-z0-9_-]+/gi, "[REDACTED]")
@@ -154,7 +156,7 @@ function failure(error: unknown) {
         : (
             {
               2: t("DeckBase 拒绝了请求参数"),
-              3: t("DeckBase 认证失败"),
+              3: "Authentication expired, revoked or invalid. Run deckflow auth login to authenticate again.",
               4: t("DeckBase 拒绝访问"),
               5: t("资源不存在或不可访问"),
               6: t("资源状态冲突，请重新读取"),

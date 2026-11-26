@@ -14,31 +14,22 @@ deckflow ws use WORKSPACE_ID
 
 `--ws` is optional after saving a default with `ws use`. A temporary override does not modify saved settings. Missing every source produces `WORKSPACE_REQUIRED`. Precedence: `--ws` → `DECKFLOW_WORKSPACE` → user default. Legacy `--space`, `DECKFLOW_SPACE`, `.deckflow.json` and `space use --local` are removed. Display names are not slugs; APIs use stable workspace IDs.
 
-## Browser authorization
+## Browser login, accounts and migration
 
 ```sh
-deckflow auth login               # Default API key; choose Token on the web
-deckflow auth login --mode apikey # Also accepts apiKey
-deckflow auth login --mode token
-deckflow auth login --no-browser  # Open the link manually on this machine
+deckflow auth login
+deckflow auth login --no-browser
+cat /secure/path/key | deckflow auth login --with-token
+deckflow auth accounts
+deckflow auth switch --user ACCOUNT_ID
+deckflow auth status --json
+deckflow auth logout --revoke
 ```
 
-Configure both API and Web endpoints. Non-local endpoints require HTTPS. The CLI listens on `127.0.0.1` at a random port for `/callback` and binds random state to the request. The browser redirects after approval or denial. The CLI validates Host and state, then calls `cliAuth.exchange` once; it does not poll for authorization. Credentials appear only in the API response, never callback URLs, terminal output or JSON. Network and rate limit failures have bounded retries respecting Retry-After.
+Browser login requires one confirmation and issues a dedicated CLI token for workspace read/write, valid for 30 days. The authorization page identifies the account and scope. Actual permissions remain bounded by live workspace roles. Expired or revoked tokens require a fresh login; there is no implicit renewal and the browser session remains independent. Default logout removes the local active account only; `--revoke` first revokes its token. Manage API-key revocation in the WebUI. Imported legacy tokens retain their issuer's lifetime and revocation semantics.
 
-The web defaults to a read-only API key without expiry. Users can select write permissions and expiry and manage keys at `/account/keys`. Token mode reuses the web session; logout, session cleanup and expiration can affect the CLI.
+`--with-token` explicitly imports an existing API key or compatible token from stdin; `--token-stdin` remains an alias. `--mode` is deprecated: token warns and uses dedicated authorization; apikey warns and fails with migration instructions rather than silently changing credential type or permissions. Migrate old scripts to `--with-token`. Deploy the matching DeckBase and authorization page: browser login rejects older responses that share browser tokens.
 
-Ctrl+C, SIGTERM and timeout cancel the handoff and close the local listener. `--wait-timeout` defaults to 10m. Failure preserves previous credentials and workspace; success atomically replaces credentials. The browser must reach the CLI machine's loopback. Remote terminals can forward the port or import credentials with `--token-stdin`.
+Business commands and status prefer `DECKFLOW_TOKEN` over the local active account. The environment token is never implicitly persisted; login and switch refuse to modify credentials while it overrides the environment. Unset it to restore the local active account. Status displays the effective account, API instance, source and available expiry, without secrets. Accounts are stored per API instance in the mode-0600 credentials file; legacy single-account credentials and other configuration survive migration. Switching on API A does not change API B.
 
-Deploy the callback-capable DeckBase API and WebUI first. Legacy device polling remains available to other clients.
-
-`DECKFLOW_API_URL/DECKFLOW_WEB_URL` override configuration; `DECKFLOW_TOKEN` overrides stored credentials. With that variable set, login without explicit `--mode` imports it; explicit `--mode` starts browser authorization. `--mode` and `--token-stdin` are mutually exclusive. Logout removes local credentials only; it neither revokes remote API keys nor clears environment variables.
-
-There is one CLI user configuration. `config set space ID` also saves a default, while `ws use ID` is the recommended entry. Operation state uses `XDG_CONFIG_HOME/deckflow/operations` or `~/.config/deckflow/operations`.
-
-Language can be changed without authentication using `config set lang en`, `zh` or `auto`. `--lang` and `DECKFLOW_LANG` temporarily override it. The local callback follows this language; the authorization website uses its own language preference.
-
-## API key compatibility
-
-Workspace roles such as leader do not imply that an API key can call every endpoint. `ws members` uses `space.users`; usage/quota/balance use `billing.detail`. API key support depends on the deployed server allowlist. A key may work for `ws info` and fail for these endpoints.
-
-For HTTP 403, inspect `error.details.server_reason`. `API key is not allowed for this method` means the endpoint rejects this credential type. Other authorization failures require checking account permissions or key scope. Changing workspace roles does not bypass endpoint credential restrictions. Original server reasons are preserved.
+The CLI validates state and Host on a random loopback callback and exchanges after confirmation without polling. `--no-browser` prints the link. Interruptions, timeouts and failures preserve prior active credentials and close the listener. Remote terminals can forward the callback port or import via stdin. Expiry and read-only workspace denials remain distinct and never bypass server authorization.

@@ -73,7 +73,7 @@ deckflow ls / --ws OTHER_WORKSPACE_ID --json
 
 使用 `--json` 时，成功和失败均在 stdout 输出单个 JSON 对象，诊断写入 stderr。Agent 和 CI 可使用 `--no-input --json`，并通过 `ok`、`error.code` 和退出码判断结果。
 
-`deckflow auth login` 会打开 DeckBase 授权页面，默认创建 API Key，也可在网页切换 Token，或通过 `deckflow auth login --mode token` 指定。CLI 临时启动本地 HTTP 服务接收浏览器回调，授权后自动领取并保存凭据，无需复制粘贴，也不轮询。`--no-browser` 只显示链接，需在运行 CLI 的同一台电脑上打开。凭据和对应 API 地址存入权限为 0600 的 `~/.deckflow/credentials`。CI 可通过密钥管理器设置 `DECKFLOW_TOKEN` 直接运行命令，或使用 `auth login --token-stdin` 导入。
+`deckflow auth login` 默认通过浏览器一次确认，签发独立的工作空间读写 CLI Token，默认有效期 30 天，可用 `auth logout --revoke` 单独撤销，不复用或退出浏览器会话。显式导入使用 `auth login --with-token`，`--token-stdin` 保留为别名。`DECKFLOW_TOKEN` 仅覆盖当前环境，不会自动保存；登录或切换前应清除该变量。使用 `auth accounts` 与 `auth switch --user ACCOUNT_ID` 管理按 API 实例隔离的账号。参见[认证与迁移说明](docs/auth-and-workspaces.md)。
 
 - [v0.3 迁移说明](docs/migration-v03.md)
 - [命令参考与支持矩阵](docs/commands.md)

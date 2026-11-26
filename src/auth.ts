@@ -219,8 +219,21 @@ export async function browserLogin(
         }
         redeemed = true;
         if (
+          result.mode === "token" &&
+          typeof result.credential === "string" &&
+          !result.credential.startsWith("cli_")
+        )
+          throw new CliError(
+            "UNSUPPORTED_AUTH_SERVER",
+            "This server shares browser session tokens. Upgrade DeckBase to support dedicated CLI authorization.",
+            3,
+          );
+        if (
           !["apikey", "token"].includes(result.mode) ||
+          typeof result.userId !== "string" ||
+          !result.userId ||
           !result.credential ||
+          (result.mode === "token" && !result.credential.startsWith("cli_")) ||
           /\s/.test(result.credential) ||
           (mode && result.mode !== mode)
         )
@@ -230,8 +243,19 @@ export async function browserLogin(
             3,
           );
         try {
-          await ctx.saveToken(apiUrl, result.credential);
+          await ctx.saveToken(apiUrl, result.credential, {
+            id: result.userId,
+            expiredAt: result.expiredAt,
+            kind: result.mode,
+          });
         } catch {
+          if (result.mode === "token")
+            await ctx
+              .client(result.credential, apiUrl)
+              .then((api) =>
+                api("auth.remove", undefined, AbortSignal.timeout(5000)),
+              )
+              .catch(() => undefined);
           throw new CliError(
             "AUTH_SAVE_FAILED",
             t("无法保存登录凭据，请检查本地配置目录权限"),

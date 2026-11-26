@@ -1453,7 +1453,7 @@ describe("issue regressions: selectors, previews and credentials", () => {
       result(
         await cli(
           ["auth", "login", "--token-stdin", "--json"],
-          {},
+          { DECKFLOW_TOKEN: "" },
           temp,
           "synthetic",
         ),
@@ -3083,7 +3083,7 @@ it("issue 5: get uses the metered download grant and keeps integrity and quota e
 });
 
 describe("browser callback authorization", () => {
-  for (const mode of [undefined, "token", "apiKey"])
+  for (const mode of [undefined, "token"])
     it(`saves ${mode ?? "default API key"} only after the local callback`, async () => {
       const credentials = join(temp, ".deckflow", "credentials");
       await mkdir(join(temp, ".deckflow"), { recursive: true });
@@ -3102,7 +3102,7 @@ describe("browser callback authorization", () => {
         expect(req.headers.authorization).toBeUndefined();
         const data = JSON.parse(body.toString());
         if (path === "/api/cli/authorizations") {
-          expect(data.mode).toBe(mode?.toLowerCase());
+          expect(data.mode).toBe("token");
           expect(data.state).toMatch(/^[\w-]{43}$/);
           callbackUrl = data.redirectUri + "?state=" + data.state;
           callbackTask = (async () => {
@@ -3128,8 +3128,8 @@ describe("browser callback authorization", () => {
           expect(data.deviceCode).toBe("d".repeat(43));
           return json(res, {
             status: "redeemed",
-            mode: mode === "token" ? "token" : "apikey",
-            credential: "new-secret",
+            mode: "token",
+            credential: "cli_new-secret",
             userId: "user1",
             expiredAt: null,
             keyId: "key1",
@@ -3150,7 +3150,7 @@ describe("browser callback authorization", () => {
       await callbackTask;
       expect(result(run)).toMatchObject({
         authenticated: true,
-        mode: mode === "token" ? "token" : "apikey",
+        mode: "token",
         user: { id: "user1" },
       });
       expect(exchanges).toBe(1);
@@ -3161,7 +3161,7 @@ describe("browser callback authorization", () => {
       expect(run.stdout + run.stderr).not.toContain("new-secret");
       expect(run.stdout + run.stderr).not.toContain("d".repeat(43));
       expect(JSON.parse(await readFile(credentials, "utf8"))).toMatchObject({
-        token: "new-secret",
+        token: "cli_new-secret",
         tokenApiRoot: base + "/api",
         spaceId: "saved-space",
       });
@@ -3286,7 +3286,7 @@ describe("browser callback authorization", () => {
         return json(res, {
           status: "redeemed",
           mode: "token",
-          credential: "new-token",
+          credential: "cli_new-token",
           userId: "user1",
           expiredAt: "2099-01-01T00:00:00Z",
         });
@@ -3303,22 +3303,228 @@ describe("browser callback authorization", () => {
 
   it("validates mode options before creating an authorization", async () => {
     expect(
-      result(await cli(["auth", "login", "--mode", "invalid", "--json"]), 2)
-        .code,
+      result(
+        await cli(["auth", "login", "--mode", "invalid", "--json"], {
+          DECKFLOW_TOKEN: "",
+        }),
+        2,
+      ).code,
     ).toBe("INVALID_ARGUMENT");
     expect(
       result(
-        await cli([
-          "auth",
-          "login",
-          "--mode",
-          "token",
-          "--token-stdin",
-          "--json",
-        ]),
+        await cli(
+          ["auth", "login", "--mode", "token", "--token-stdin", "--json"],
+          { DECKFLOW_TOKEN: "" },
+        ),
         2,
       ).code,
     ).toBe("INVALID_ARGUMENT");
     expect(requests).toHaveLength(0);
   });
+});
+
+describe("issue 125 account workflow", () => {
+  it("imports, switches and isolates accounts while respecting environment overrides", async () => {
+    handler = (req, res, path) => {
+      const user = String(req.headers.authorization).replace("Bearer ", "");
+      return json(
+        res,
+        path.includes("/user")
+          ? { id: user, name: "Name-" + user }
+          : { id: "ws", actor: user },
+      );
+    };
+    const noEnv = { DECKFLOW_TOKEN: "" };
+    for (const [flag, token] of [
+      ["--with-token", "one"],
+      ["--token-stdin", "two"],
+    ])
+      expect(
+        result(await cli(["auth", "login", flag, "--json"], noEnv, temp, token))
+          .user.id,
+      ).toBe(token);
+    expect(result(await cli(["auth", "status", "--json"], noEnv)).user.id).toBe(
+      "two",
+    );
+    expect(
+      result(await cli(["auth", "switch", "--user", "one", "--json"], noEnv))
+        .account.id,
+    ).toBe("one");
+    expect(result(await cli(["ws", "info", "--json"], noEnv)).actor).toBe(
+      "one",
+    );
+    const credentials = join(temp, ".deckflow", "credentials"),
+      before = await readFile(credentials, "utf8");
+    const env = { DECKFLOW_TOKEN: "env-account" };
+    expect(result(await cli(["auth", "status", "--json"], env))).toMatchObject({
+      source: "environment",
+      user: { id: "env-account" },
+    });
+    expect(
+      result(await cli(["auth", "switch", "--user", "two", "--json"], env), 2)
+        .code,
+    ).toBe("AUTH_ENV_OVERRIDE");
+    expect(await readFile(credentials, "utf8")).toBe(before);
+    expect(
+      result(
+        await cli(
+          ["auth", "login", "--with-token", "--json"],
+          { ...noEnv, DECKFLOW_API_URL: base + "/other" },
+          temp,
+          "other-account",
+        ),
+      ).user.id,
+    ).toBe("other-account");
+    expect(result(await cli(["auth", "status", "--json"], noEnv)).user.id).toBe(
+      "one",
+    );
+    const accounts = await cli(["auth", "accounts", "--json"], noEnv);
+    expect(result(accounts)).toHaveLength(2);
+    expect(
+      result(accounts).every((account: object) => !("token" in account)),
+    ).toBe(true);
+  });
+  it("deprecates mode apikey without creating a key or starting browser authorization", async () => {
+    const run = await cli(["auth", "login", "--mode", "apikey", "--json"], {
+      DECKFLOW_TOKEN: "",
+    });
+    expect(result(run, 2).code).toBe("INVALID_ARGUMENT");
+    expect(run.stderr).toContain("deprecated");
+    expect(requests).toHaveLength(0);
+  });
+});
+it.each([false, true])(
+  "issue 125 preserves a legacy credential when adding an account on another instance: %s",
+  async (otherInstance) => {
+    handler = (req, res, path) => {
+      const id = String(req.headers.authorization).replace("Bearer ", "");
+      return json(
+        res,
+        path.includes("/user") ? { id, name: id } : { id: "ws", actor: id },
+      );
+    };
+    await mkdir(join(temp, ".deckflow"), { recursive: true });
+    await writeFile(
+      join(temp, ".deckflow", "credentials"),
+      JSON.stringify({
+        apiRoot: base + "/api",
+        tokenApiRoot: base + "/api",
+        token: "legacy",
+        spaceId: "saved",
+      }),
+    );
+    result(
+      await cli(
+        ["auth", "login", "--with-token", "--json"],
+        {
+          DECKFLOW_TOKEN: "",
+          ...(otherInstance ? { DECKFLOW_API_URL: base + "/other" } : {}),
+        },
+        temp,
+        "new-account",
+      ),
+    );
+    const accounts = result(
+      await cli(["auth", "accounts", "--json"], { DECKFLOW_TOKEN: "" }),
+    );
+    expect(accounts).toHaveLength(otherInstance ? 1 : 2);
+    if (otherInstance)
+      expect(
+        result(await cli(["auth", "status", "--json"], { DECKFLOW_TOKEN: "" }))
+          .user.id,
+      ).toBe("legacy");
+    const old = accounts.find((a: { id: string }) => a.id != "new-account");
+    result(
+      await cli(["auth", "switch", "--user", old.id, "--json"], {
+        DECKFLOW_TOKEN: "",
+      }),
+    );
+    expect(
+      result(await cli(["ws", "info", "--json"], { DECKFLOW_TOKEN: "" })).actor,
+    ).toBe("legacy");
+  },
+);
+it("issue 125 reports expiry and revokes the active CLI token before clearing it", async () => {
+  let revoked = false;
+  handler = (req, res, path) => {
+    const token = req.headers.authorization;
+    if (req.method === "DELETE") {
+      revoked = true;
+      return json(res, true);
+    }
+    if (token === "Bearer cli_test" && revoked) return json(res, {}, 401);
+    return json(
+      res,
+      path.includes("/user")
+        ? { id: "account", name: "Account" }
+        : { expiredAt: "2099-01-01T00:00:00Z" },
+    );
+  };
+  result(
+    await cli(
+      ["auth", "login", "--with-token", "--json"],
+      { DECKFLOW_TOKEN: "" },
+      temp,
+      "cli_test",
+    ),
+  );
+  expect(
+    result(await cli(["auth", "status", "--json"], { DECKFLOW_TOKEN: "" }))
+      .expiredAt,
+  ).toBe("2099-01-01T00:00:00Z");
+  result(
+    await cli(["auth", "logout", "--revoke", "--json"], { DECKFLOW_TOKEN: "" }),
+  );
+  expect(revoked).toBe(true);
+  expect(
+    result(await cli(["auth", "status", "--json"], { DECKFLOW_TOKEN: "" }), 3)
+      .code,
+  ).toBe("UNAUTHENTICATED");
+  const error = result(
+    await cli(["auth", "status", "--json"], { DECKFLOW_TOKEN: "cli_test" }),
+    3,
+  );
+  expect(error.message).toContain("auth login");
+});
+it("issue 125 never echoes a local opaque credential from backend error diagnostics", async () => {
+  const secret = "opaque-private-credential";
+  await mkdir(join(temp, ".deckflow"), { recursive: true });
+  await writeFile(
+    join(temp, ".deckflow", "credentials"),
+    JSON.stringify({ token: secret, tokenApiRoot: base + "/api" }),
+  );
+  handler = (_, res) => json(res, { code: "notLoggedIn", data: [secret] }, 401);
+  const run = await cli(["auth", "status", "--json"], { DECKFLOW_TOKEN: "" });
+  expect(result(run, 3).code).toBe("UNAUTHENTICATED");
+  expect(run.stdout + run.stderr).not.toContain(secret);
+});
+it("issue 125 refuses a legacy server's shared browser token without saving or exposing it", async () => {
+  let callback: Promise<unknown> | undefined;
+  handler = (_, res, path, body) => {
+    if (path.endsWith("/exchange"))
+      return json(res, {
+        status: "redeemed",
+        mode: "token",
+        credential: "user_browser_secret",
+        userId: "user",
+        expiredAt: "2099-01-01T00:00:00Z",
+      });
+    const data = JSON.parse(body.toString());
+    callback = fetch(data.redirectUri + "?state=" + data.state);
+    return json(res, {
+      deviceCode: "d".repeat(43),
+      userCode: "ABCDEF1234",
+      verificationPath: "/cli/authorize?user_code=ABCDEF1234",
+      expiresIn: 600,
+    });
+  };
+  const run = await cli(["auth", "login", "--no-browser", "--json"], {
+    DECKFLOW_TOKEN: "",
+  });
+  await callback;
+  expect(result(run, 3).code).toBe("UNSUPPORTED_AUTH_SERVER");
+  expect(run.stdout + run.stderr).not.toContain("user_browser_secret");
+  await expect(
+    stat(join(temp, ".deckflow", "credentials")),
+  ).rejects.toMatchObject({ code: "ENOENT" });
 });

@@ -1,9 +1,10 @@
 import { t } from "./i18n.mjs";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { basename, dirname, join } from "node:path";
 import type { Method, Params } from "@deckflow/deckbase-sdk";
 import type { Command } from "commander";
 import openBrowser from "open";
+import { createInterface } from "node:readline/promises";
 import { authorizationMode, browserLogin } from "./auth.js";
 import {
   CliError,
@@ -12,6 +13,7 @@ import {
   configKey,
   endpoint,
   inputJson,
+  integer,
   isRead,
   methodOf,
   page,
@@ -213,27 +215,58 @@ export function commands(root: Command, register: Register) {
       return null;
     }
   };
+  const credentialExpiry = async (
+    ctx: Context,
+    token: string,
+    apiUrl?: string,
+  ) => {
+    if (!token || token.startsWith("dbk_")) return null;
+    try {
+      const detail = (await (
+        await ctx.client(token, apiUrl)
+      )("auth.detail", undefined)) as unknown as { expiredAt?: unknown };
+      return typeof detail?.expiredAt === "string" ? detail.expiredAt : null;
+    } catch (error) {
+      if ((error as { status?: number }).status === 401) throw error;
+      return null;
+    }
+  };
   const auth = group("auth", t("管理 DeckBase 身份"));
   add(
     auth,
     "login",
     t("通过浏览器授权登录，或导入 API Key / Token"),
     async (ctx, _, o) => {
-      const mode = authorizationMode(o.mode);
-      if (o.tokenStdin && mode)
+      if (ctx.env.DECKFLOW_TOKEN)
+        throw new CliError(
+          "AUTH_ENV_OVERRIDE",
+          "DECKFLOW_TOKEN is active; unset it before logging in. Local credentials have not been changed.",
+          2,
+          { source: "environment" },
+        );
+      const importToken = Boolean(o.withToken || o.tokenStdin);
+      const requestedMode = authorizationMode(o.mode);
+      if (requestedMode)
+        process.stderr.write(
+          "Warning: --mode is deprecated. Browser login now issues an independent 30-day workspace read/write CLI token, not a shared browser session. Use --with-token to import an existing credential.\n",
+        );
+      if (requestedMode === "apikey")
+        throw usage(
+          "--mode apikey is no longer supported; import an API key with --with-token",
+        );
+      const mode = "token" as const;
+      if (importToken && requestedMode)
         throw usage(t("--mode 不能与 --token-stdin 同时使用"));
       const apiUrl = await ctx.apiUrl();
       if (ctx.opts.dryRun) return { dryRun: true, apiUrl };
-      if (!o.tokenStdin && (mode || !ctx.env.DECKFLOW_TOKEN))
+      if (!importToken)
         return browserLogin(
           ctx,
           apiUrl,
           mode,
           o.browser === undefined || Boolean(o.browser),
         );
-      const token = (
-        o.tokenStdin ? await stdinText() : ctx.env.DECKFLOW_TOKEN || ""
-      ).trim();
+      const token = (await stdinText()).trim();
       if (!token || /\s/.test(token))
         throw new CliError(
           "AUTH_REQUIRED",
@@ -241,7 +274,15 @@ export function commands(root: Command, register: Register) {
           3,
         );
       const user = await identity(ctx, token, apiUrl);
-      await ctx.saveToken(apiUrl, token);
+      await ctx.saveToken(apiUrl, token, {
+        id:
+          user?.id ||
+          "credential-" +
+            createHash("sha256").update(token).digest("hex").slice(0, 16),
+        name: user?.name,
+        expiredAt: await credentialExpiry(ctx, token, apiUrl),
+        kind: token.startsWith("dbk_") ? "apikey" : "token",
+      });
       return {
         authenticated: true,
         user,
@@ -252,26 +293,124 @@ export function commands(root: Command, register: Register) {
       c
         .option(
           "--mode <mode>",
-          t("浏览器授权模式：apikey（默认）或 token；不指定时可在网页切换"),
+          "Deprecated: token warns; apikey is rejected. Use --with-token for imports",
         )
         .option("--no-browser", t("只显示授权链接，不自动打开浏览器"))
+        .option(
+          "--with-token",
+          "Import an API key or token from standard input",
+        )
         .option("--token-stdin", t("从标准输入读入 API Key 或 Token")),
   );
-  add(auth, "status", t("验证当前身份"), async (ctx) => ({
-    authenticated: true,
-    user: await identity(ctx),
-    source: ctx.env.DECKFLOW_TOKEN ? "environment" : "credential-store",
-  }));
-  add(auth, "logout", t("清除本地凭据"), async (ctx) => {
-    if (ctx.opts.dryRun) return { dryRun: true, apiUrl: await ctx.apiUrl() };
-    const removed = await ctx.clearToken(await ctx.apiUrl());
-    if (ctx.env.DECKFLOW_TOKEN)
-      process.stderr.write(t("DECKFLOW_TOKEN 仍然生效。\n"));
+  add(
+    auth,
+    "accounts",
+    "List locally saved accounts without credential values",
+    (ctx) => ctx.accountList(),
+  );
+  add(
+    auth,
+    "switch",
+    "Switch the active account for this API instance",
+    async (ctx, _, o) => {
+      if (ctx.env.DECKFLOW_TOKEN)
+        throw new CliError(
+          "AUTH_ENV_OVERRIDE",
+          "DECKFLOW_TOKEN is active; unset it before switching accounts. Local credentials have not been changed.",
+          2,
+          { source: "environment" },
+        );
+      const accounts = await ctx.accountList();
+      let selector = o.user;
+      if (!selector) {
+        const alternatives = accounts.filter((a) => !a.active);
+        if (alternatives.length === 1) selector = alternatives[0].id;
+        else if (ctx.interactive && accounts.length) {
+          const rl = createInterface({
+            input: process.stdin,
+            output: process.stderr,
+          });
+          try {
+            selector =
+              accounts[
+                integer(
+                  await rl.question(
+                    accounts
+                      .map((a, i) => `${i + 1}. ${a.name || a.id}`)
+                      .join("\n") + "\nAccount number: ",
+                  ),
+                  1,
+                  accounts.length,
+                ) - 1
+              ].id;
+          } finally {
+            rl.close();
+          }
+        } else
+          throw usage("Specify --user with an account ID from auth accounts");
+      }
+      if (ctx.opts.dryRun) return { dryRun: true, account_id: selector };
+      return {
+        api_url: await ctx.apiUrl(),
+        source: "credential-store",
+        account: await ctx.switchAccount(selector),
+      };
+    },
+    (c) => c.option("--user <id>", "Account ID or unique name"),
+  );
+  add(auth, "status", t("验证当前身份"), async (ctx) => {
+    const user = await identity(ctx);
+    const local = ctx.env.DECKFLOW_TOKEN ? undefined : await ctx.localAccount();
     return {
-      localCredentialRemoved: removed,
-      environmentTokenActive: !!ctx.env.DECKFLOW_TOKEN,
+      authenticated: true,
+      user,
+      api_url: await ctx.apiUrl(),
+      account_id: user?.id ?? local?.id ?? null,
+      expiredAt:
+        (await credentialExpiry(
+          ctx,
+          ctx.env.DECKFLOW_TOKEN || local?.token || "",
+        )) ??
+        local?.expiredAt ??
+        null,
+      source: ctx.env.DECKFLOW_TOKEN ? "environment" : "credential-store",
     };
   });
+  add(
+    auth,
+    "logout",
+    t("清除本地凭据"),
+    async (ctx, _, o) => {
+      if (ctx.opts.dryRun) return { dryRun: true, apiUrl: await ctx.apiUrl() };
+      if (o.revoke) {
+        if (ctx.env.DECKFLOW_TOKEN)
+          throw new CliError(
+            "AUTH_ENV_OVERRIDE",
+            "Unset DECKFLOW_TOKEN before revoking a local credential",
+            2,
+          );
+        const account = await ctx.localAccount();
+        if (!account) throw usage("No active local credential");
+        if (account.kind === "apikey" || account.token.startsWith("dbk_"))
+          throw usage("Revoke API keys in the WebUI API key settings");
+        await (
+          await ctx.client(account.token)
+        )("auth.remove", undefined);
+      }
+      const removed = await ctx.clearToken(await ctx.apiUrl());
+      if (ctx.env.DECKFLOW_TOKEN)
+        process.stderr.write(t("DECKFLOW_TOKEN 仍然生效。\n"));
+      return {
+        localCredentialRemoved: removed,
+        environmentTokenActive: !!ctx.env.DECKFLOW_TOKEN,
+      };
+    },
+    (c) =>
+      c.option(
+        "--revoke",
+        "Revoke the active token before removing it locally",
+      ),
+  );
   add(root, "status", t("显示身份、地址和工作空间"), async (ctx) => ({
     apiUrl: await ctx.apiUrl(),
     webUrl: ctx.env.DECKFLOW_WEB_URL || (await ctx.config()).webUrl || null,

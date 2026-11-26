@@ -65,7 +65,7 @@ Unavailable backend capabilities return `NOT_IMPLEMENTED` or `UNSUPPORTED_OPERAT
 
 With `--json`, success and failure each produce one JSON object on stdout; diagnostics go to stderr. Agents and CI should use `--no-input --json` and inspect `ok`, `error.code` and exit status.
 
-Browser login defaults to creating an API key. Select Token on the web or use `--mode token`. A temporary local HTTP callback receives authorization, exchanges and saves credentials without copying or polling. `--no-browser` displays the link, which must be opened on the CLI machine. Credentials are stored in `~/.deckflow/credentials` with mode 0600 and bound to the API endpoint. CI can supply `DECKFLOW_TOKEN`; `--token-stdin` imports credentials.
+Browser login defaults to a dedicated workspace read/write CLI token, valid for 30 days and independently revocable with `auth logout --revoke`. It does not reuse or end your browser session. Use `auth login --with-token` to explicitly import an existing API key or compatible token (`--token-stdin` remains an alias). `DECKFLOW_TOKEN` overrides the active local account without being saved: unset it before login or switching. Use `auth accounts` and `auth switch --user ACCOUNT_ID` to manage accounts per API instance. See [authentication and migration](docs/auth-and-workspaces.en.md).
 
 - [Migration](docs/migration-v03.en.md)
 - [Command reference and support matrix](docs/commands.en.md)

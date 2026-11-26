@@ -18,26 +18,25 @@ deckflow ws use WORKSPACE_ID
 
 优先级：`--ws` → `DECKFLOW_WORKSPACE` → 用户默认空间。旧 `--space`、`DECKFLOW_SPACE`、`.deckflow.json` 和 `space use --local` 已移除。显示名称不作为 slug；当前接口以稳定空间 ID 使用。
 
-## 浏览器授权
+## 登录、账号与迁移
 
 ```sh
-deckflow auth login                     # 网页默认 API Key，可切换 Token
-deckflow auth login --mode apikey       # 指定 API Key（也接受 apiKey）
-deckflow auth login --mode token        # 指定 Token
-deckflow auth login --no-browser        # 手动在本机浏览器打开链接
+deckflow auth login
+deckflow auth login --no-browser
+cat /secure/path/key | deckflow auth login --with-token
+deckflow auth accounts
+deckflow auth switch --user ACCOUNT_ID
+deckflow auth status --json
+deckflow auth logout --revoke
 ```
 
-需要配置 API 与 Web 地址，非本机地址必须使用 HTTPS。CLI 在 `127.0.0.1` 随机端口监听 `/callback`，创建请求时绑定随机 state；网页批准或拒绝后跳转到本地回调。CLI 校验 state 和 Host 后，一次性调用 `cliAuth.exchange` 领取结果，不轮询等待授权。凭据只经 API 响应交付，不出现在回调 URL、终端或 JSON 输出中；仅网络或限流失败会做有限重试并遵守 Retry-After。
+默认只需在已登录的浏览器确认一次；授权页显示账号和工作空间读写范围。后端签发独立 CLI Token，默认 30 天有效，不复用浏览器会话；有效权限仍取决于实时工作空间角色。到期或撤销后重新运行 `auth login`，不自动续期，也不影响浏览器会话。`auth logout` 只移除本地活动账号；`--revoke` 先撤销当前 Token，API Key 应在 WebUI Key 管理页撤销。显式导入的历史 Token 仍遵循原发行方的期限与撤销语义。
 
-网页默认创建只读、无到期时间的 API Key，可自行选择读写权限和到期时间；在 `/account/keys` 管理和撤销。Token 复用当前网页会话，网页退出、会话清理或到期都会影响 CLI。
+`--with-token` 从标准输入显式导入已有 API Key 或适用 Token；`--token-stdin` 是兼容别名。`--mode` 已弃用：`--mode token` 提示弃用后使用专用 Token 流程；`--mode apikey` 提示迁移并拒绝执行，不能静默改变类型或权限。旧脚本改为 `--with-token`，已有 Key 的权限不会自动提升。新浏览器登录需要同步部署支持专用 Token 的 DeckBase 与授权页，旧的共享浏览器 Token 响应会被拒绝。
 
-Ctrl+C、SIGTERM 或等待超时会取消交接并关闭本地服务，`--wait-timeout` 默认 10m。授权失败或取消时保留原凭据和默认工作空间；成功后才通过原子写入替换凭据。本地回调要求浏览器能访问 CLI 所在机器的 loopback；远端终端可使用端口转发，或以 `--token-stdin` 导入凭据。
+业务与状态优先使用 `DECKFLOW_TOKEN`，其次本地活动账号。环境凭据不会隐式导入；设置该变量时 `auth login` 和 `auth switch` 明确拒绝并提示清除覆盖，保留本地凭据。`auth status` 展示实际账号、API 实例、来源与可取得的到期时间，不输出凭据。账号在权限为 0600 的 credentials 文件中按 API 实例保存，原有配置和旧单账号凭据兼容保留；首次保存新账号时迁移旧凭据，API A 的切换不影响 API B。
 
-需要部署包含回调扩展的 DeckBase API 与 WebUI。旧设备轮询接口仍保留供其他客户端使用。
-
-`DECKFLOW_API_URL/DECKFLOW_WEB_URL` 覆盖配置；`DECKFLOW_TOKEN` 优先于本地凭据。支持 `auth login --token-stdin` 导入 API Key 或 Token；设置了 `DECKFLOW_TOKEN` 时，未指定 `--mode` 的登录命令沿用环境变量导入，显式 `--mode` 会发起浏览器授权。`--mode` 与 `--token-stdin` 不能同时使用。退出登录只清除本地凭据，不撤销远端 API Key，也不清除环境变量。
-
-当前只有一个 CLI 用户配置。`config set space ID` 仍可保存默认空间；推荐使用验证访问的 `ws use ID`。状态文件沿用 XDG_CONFIG_HOME/deckflow/operations，或 ~/.config/deckflow/operations。
+CLI 监听随机 loopback 端口并校验 state/Host，回调后兑换，不轮询。`--no-browser` 只显示链接；Ctrl+C、SIGTERM 或超时取消交接并关闭监听，失败保留原活动凭据。远端终端可转发回调端口，或显式标准输入导入。令牌到期与工作空间只读拒绝是不同错误，不会自动绕过服务端授权。
 
 ## API Key 与命令兼容性
 

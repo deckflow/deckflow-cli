@@ -23,6 +23,12 @@ import { setTimeout as sleep } from "node:timers/promises";
 import lockfile from "proper-lockfile";
 import { methods } from "./sdk-methods.generated.js";
 
+const credentialValues = new Set<string>();
+export function redactCredentials(value: string) {
+  for (const credential of credentialValues)
+    value = value.split(credential).join("[REDACTED]");
+  return value;
+}
 export class CliError extends Error {
   constructor(
     public code: string,
@@ -215,12 +221,22 @@ export type ApiCall = <M extends Method>(
   params: Params<M>,
   signal?: AbortSignal,
 ) => Promise<Result<M>>;
+export type LocalAccount = {
+  id: string;
+  token: string;
+  name?: string;
+  expiredAt?: string | null;
+  kind?: string;
+};
 type StoredCredentials = Partial<
   Record<
     (typeof configFields)[keyof Config]["storedAs"] | "token" | "tokenApiRoot",
     string
   >
->;
+> & {
+  accounts?: Record<string, Record<string, LocalAccount>>;
+  activeAccounts?: Record<string, string>;
+};
 
 export class Context {
   readonly cwd: string;
@@ -323,10 +339,47 @@ export class Context {
       !data ||
       typeof data !== "object" ||
       Array.isArray(data) ||
-      Object.values(data).some((value) => typeof value !== "string")
+      Object.entries(data).some(
+        ([key, value]) =>
+          !["accounts", "activeAccounts"].includes(key) &&
+          typeof value !== "string",
+      )
     )
       throw usage(t("凭据配置必须是字符串字段组成的 JSON 对象"));
-    return data as StoredCredentials;
+    const stored = data as StoredCredentials;
+    const record = (value: unknown): value is Record<string, unknown> =>
+      Boolean(value && typeof value === "object" && !Array.isArray(value));
+    if (stored.accounts !== undefined) {
+      if (!record(stored.accounts))
+        throw usage("Invalid account configuration");
+      for (const accounts of Object.values(stored.accounts)) {
+        if (!record(accounts)) throw usage("Invalid account configuration");
+        for (const [id, account] of Object.entries(accounts)) {
+          if (
+            !record(account) ||
+            account.id !== id ||
+            typeof account.token !== "string" ||
+            !account.token ||
+            /\s/.test(account.token) ||
+            (account.name !== undefined && typeof account.name !== "string") ||
+            (account.expiredAt != null && typeof account.expiredAt !== "string")
+          )
+            throw usage("Invalid account configuration");
+        }
+      }
+    }
+    if (
+      stored.activeAccounts !== undefined &&
+      (!record(stored.activeAccounts) ||
+        Object.values(stored.activeAccounts).some(
+          (id) => typeof id !== "string",
+        ))
+    )
+      throw usage("Invalid active account configuration");
+    for (const [url, id] of Object.entries(stored.activeAccounts ?? {}))
+      if (!stored.accounts?.[url] || !Object.hasOwn(stored.accounts[url], id))
+        throw usage("Active account is missing from account configuration");
+    return stored;
   }
   private async updateCredentials(update: (data: StoredCredentials) => void) {
     await mkdir(dirname(this.credentialsPath), {
@@ -361,20 +414,121 @@ export class Context {
       data[configFields[key].storedAs] = value;
     });
   }
-  async saveToken(url: string, token: string) {
+  async localAccount(url = ""): Promise<LocalAccount | undefined> {
+    url ||= await this.apiUrl();
+    const data = await this.credentials();
+    const active = data.activeAccounts?.[url];
+    const account = active && data.accounts?.[url]?.[active];
+    if (account) return account;
+    if ((data.tokenApiRoot ?? data.apiRoot) === url && data.token)
+      return {
+        id:
+          "credential-" +
+          createHash("sha256").update(data.token).digest("hex").slice(0, 16),
+        token: data.token,
+      };
+  }
+  async saveToken(
+    url: string,
+    token: string,
+    metadata?: Omit<LocalAccount, "token">,
+  ) {
+    const account: LocalAccount = {
+      ...metadata,
+      id:
+        metadata?.id ||
+        "credential-" +
+          createHash("sha256").update(token).digest("hex").slice(0, 16),
+      token,
+    };
     await this.updateCredentials((data) => {
+      const previousUrl = data.tokenApiRoot ?? data.apiRoot;
       data.apiRoot ??= url;
+      data.accounts ??= {};
+      data.activeAccounts ??= {};
+      if (
+        data.token &&
+        previousUrl &&
+        !(previousUrl === url && data.token === token) &&
+        !Object.values(data.accounts[previousUrl] ?? {}).some(
+          (account) => account.token === data.token,
+        )
+      ) {
+        const previousId =
+          "credential-" +
+          createHash("sha256").update(data.token).digest("hex").slice(0, 16);
+        data.accounts[previousUrl] = {
+          ...data.accounts[previousUrl],
+          [previousId]: { id: previousId, token: data.token },
+        };
+        data.activeAccounts[previousUrl] ??= previousId;
+      }
+      for (const [id, existing] of Object.entries(data.accounts[url] ?? {}))
+        if (existing.token === token && id !== account.id)
+          delete data.accounts[url][id];
+      data.accounts[url] = { ...data.accounts[url], [account.id]: account };
+      data.activeAccounts ??= {};
+      data.activeAccounts[url] = account.id;
       data.tokenApiRoot = url;
       data.token = token;
     });
   }
+  async accountList() {
+    const url = await this.apiUrl(),
+      data = await this.credentials();
+    const accounts = Object.values(data.accounts?.[url] ?? {});
+    const legacy = await this.localAccount(url);
+    if (legacy && !accounts.some((a) => a.id === legacy.id))
+      accounts.push(legacy);
+    return accounts.map(({ token: _token, ...account }) => ({
+      ...account,
+      active: account.id === (data.activeAccounts?.[url] ?? legacy?.id),
+    }));
+  }
+  async switchAccount(selector: string) {
+    const url = await this.apiUrl();
+    await this.updateCredentials((data) => {
+      const accounts = { ...data.accounts?.[url] };
+      if (
+        data.token &&
+        (data.tokenApiRoot ?? data.apiRoot) === url &&
+        !Object.values(accounts).some((a) => a.token === data.token)
+      ) {
+        const id =
+          "credential-" +
+          createHash("sha256").update(data.token).digest("hex").slice(0, 16);
+        accounts[id] = { id, token: data.token };
+      }
+      const matches = Object.values(accounts).filter(
+        (a) => a.id === selector || a.name === selector,
+      );
+      if (matches.length !== 1)
+        throw usage(
+          "Account not found or ambiguous; use auth accounts to list account IDs",
+        );
+      data.accounts ??= {};
+      data.accounts[url] = accounts;
+      data.activeAccounts ??= {};
+      data.activeAccounts[url] = matches[0].id;
+      data.tokenApiRoot = url;
+      data.token = matches[0].token;
+    });
+    return (await this.accountList()).find((a) => a.active);
+  }
   async clearToken(url: string) {
     let removed = false;
     await this.updateCredentials((data) => {
-      if ((data.tokenApiRoot ?? data.apiRoot) !== url) return;
-      removed = data.token !== undefined;
-      delete data.token;
-      delete data.tokenApiRoot;
+      const id = data.activeAccounts?.[url];
+      if (id && data.accounts?.[url]?.[id]) {
+        delete data.accounts[url][id];
+        delete data.activeAccounts![url];
+        removed = true;
+      }
+      if ((data.tokenApiRoot ?? data.apiRoot) === url) {
+        removed ||= data.token !== undefined;
+        delete data.token;
+        delete data.tokenApiRoot;
+      }
     });
     return removed;
   }
@@ -411,10 +565,8 @@ export class Context {
   }
   async credentialScope() {
     const url = await this.apiUrl();
-    const data = await this.credentials();
     const token =
-      this.env.DECKFLOW_TOKEN ||
-      ((data.tokenApiRoot ?? data.apiRoot) === url ? data.token : undefined);
+      this.env.DECKFLOW_TOKEN || (await this.localAccount(url))?.token;
     if (!token) throw new CliError("AUTH_REQUIRED", t("请先登录"), 3);
     return createHash("sha256").update(token).digest("hex");
   }
@@ -422,8 +574,7 @@ export class Context {
     const url = apiUrl ?? (await this.apiUrl());
     let token = credential ?? this.env.DECKFLOW_TOKEN;
     if (!token && credential === undefined) {
-      const data = await this.credentials();
-      if ((data.tokenApiRoot ?? data.apiRoot) === url) token = data.token;
+      token = (await this.localAccount(url))?.token;
     }
     if (!token)
       throw new CliError(
@@ -431,6 +582,7 @@ export class Context {
         t("请先 auth login 或设置 DECKFLOW_TOKEN"),
         3,
       );
+    credentialValues.add(token);
     const client = createClient(
       url,
       token,
