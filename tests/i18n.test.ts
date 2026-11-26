@@ -169,3 +169,78 @@ it("keeps language-like option values and -- operands as data", () => {
   expect(literal.status).toBe(2);
   expect(literal.stdout).toBe("");
 });
+
+it.each([
+  {
+    lang: "zh",
+    loginHelp: "从标准输入导入",
+    switchHelp: "切换当前 API 实例的活动账号",
+    selector: "账号 ID 或唯一名称",
+    warning: "警告：--mode 已弃用",
+    error: "不再支持 --mode apikey",
+    missing: "账号不存在或名称不唯一",
+    override: "请清除该环境变量",
+    invalid: "请通过 --with-token",
+  },
+  {
+    lang: "en",
+    loginHelp: "Import an API key or token from standard input",
+    switchHelp: "Switch the active account for this API instance",
+    selector: "Account ID or unique name",
+    warning: "Warning: --mode is deprecated",
+    error: "--mode apikey is no longer supported",
+    missing: "Account not found or ambiguous",
+    override: "unset it before",
+    invalid: "Provide a valid token or API key",
+  },
+])(
+  "issue 126 localizes auth help, migration warnings and local errors in $lang",
+  ({
+    lang,
+    loginHelp,
+    switchHelp,
+    selector,
+    warning,
+    error,
+    missing,
+    override,
+    invalid,
+  }) => {
+    const invoke = (args: string[], env: NodeJS.ProcessEnv = {}) =>
+      run(["--lang", lang, "auth", ...args], {
+        DECKFLOW_TOKEN: "",
+        DECKFLOW_API_URL: "http://127.0.0.1:1/api",
+        ...env,
+      });
+    expect(invoke(["login", "--help"]).stdout).toContain(loginHelp);
+    const help = invoke(["switch", "--help"]);
+    expect(help.stdout).toContain(switchHelp);
+    expect(help.stdout).toContain(selector);
+    const deprecated = invoke(["login", "--mode", "apikey", "--json"]);
+    expect(deprecated.status).toBe(2);
+    expect(deprecated.stderr).toContain(warning);
+    expect(JSON.parse(deprecated.stdout).error).toMatchObject({
+      code: "INVALID_ARGUMENT",
+      message: expect.stringContaining(error),
+    });
+    for (const dry of [[], ["--dry-run"]]) {
+      const unknown = invoke(["switch", "--user", "missing", "--json", ...dry]);
+      expect(unknown.status).toBe(2);
+      expect(JSON.parse(unknown.stdout).error.message).toContain(missing);
+    }
+    for (const command of ["login", "switch"]) {
+      const blocked = invoke([command, "--json"], {
+        DECKFLOW_TOKEN: "private-env-secret",
+      });
+      expect(JSON.parse(blocked.stdout).error).toMatchObject({
+        code: "AUTH_ENV_OVERRIDE",
+        message: expect.stringContaining(override),
+      });
+      expect(blocked.stdout + blocked.stderr).not.toContain(
+        "private-env-secret",
+      );
+    }
+    const empty = invoke(["login", "--with-token", "--json"]);
+    expect(JSON.parse(empty.stdout).error.message).toContain(invalid);
+  },
+);

@@ -1,4 +1,28 @@
 declare const messages: {
+  "DECKFLOW_TOKEN 当前生效；请清除该环境变量后再登录。本地凭据未修改。": string;
+  "警告：--mode 已弃用。浏览器登录将签发独立的 CLI Token，30 天有效，授权工作空间读写。请使用 --with-token 导入已有凭据。\n": string;
+  "不再支持 --mode apikey；请使用 --with-token 导入 API Key": string;
+  "已弃用：token 显示警告，apikey 拒绝执行；请使用 --with-token 导入": string;
+  "从标准输入导入 API Key 或 Token": string;
+  "列出本地保存的账号，隐藏凭据值": string;
+  "切换当前 API 实例的活动账号": string;
+  "DECKFLOW_TOKEN 当前生效；请清除该环境变量后再切换账号。本地凭据未修改。": string;
+  "请通过 --user 指定账号 ID，可用 auth accounts 查看": string;
+  "账号 ID 或唯一名称": string;
+  "请清除 DECKFLOW_TOKEN 环境变量后再撤销本地凭据": string;
+  没有活动的本地凭据: string;
+  "请在 WebUI 的 API Key 设置中撤销密钥": string;
+  "先撤销活动 Token，再移除本地凭据": string;
+  账号配置无效: string;
+  活动账号配置无效: string;
+  账号配置中缺少活动账号: string;
+  "账号不存在或名称不唯一；请用 auth accounts 查看账号 ID": string;
+  "当前服务端使用共享浏览器会话 Token；请升级 DeckBase 以支持 CLI 专用授权。": string;
+  "认证已过期、被撤销或无效；请运行 deckflow auth login 重新认证。": string;
+  "账号序号：": string;
+  "--mode 不能与 --with-token 或 --token-stdin 同时使用": string;
+  "请通过 --with-token 从标准输入提供有效 Token 或 API Key": string;
+
   "DeckBase 云端文件命令行客户端": string;
   管理本地配置: string;
   列出用户配置: string;

@@ -3430,7 +3430,7 @@ describe("issue 125 account workflow", () => {
       DECKFLOW_TOKEN: "",
     });
     expect(result(run, 2).code).toBe("INVALID_ARGUMENT");
-    expect(run.stderr).toContain("deprecated");
+    expect(run.stderr).toContain("已弃用");
     expect(requests).toHaveLength(0);
   });
 });
