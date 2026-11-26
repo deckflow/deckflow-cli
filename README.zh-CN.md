@@ -2,7 +2,7 @@
 
 [English](README.md) | **简体中文**
 
-`deckflow` 是面向开发者、Agent 和 CI 的 DeckBase 文件命令行客户端，提供文件与目录管理、内容检索、已有文本与视觉预览读取、文件处理任务和版本管理。当前源码包版本为 `0.3.0`，命令设计遵循 v0.3 规范。
+`deckflow` 是面向开发者、Agent 和 CI 的 DeckBase 文件命令行客户端，提供文件与目录管理、内容检索、已有文本与视觉预览读取、文件处理任务和版本管理。当前源码包版本为 `0.3.1`，命令设计遵循 v0.3 规范。
 
 ## 安装
 
@@ -13,7 +13,7 @@ npm install -g @deckflow/deckflow-cli --registry=https://registry.npmjs.org
 deckflow --version
 ```
 
-如曾为 `@deckflow` 配置 GitHub Packages scope registry，使用公共 npm 前先移除该 scope 配置。旧包用户先参阅[迁移说明](docs/migration-v03.md)。也可以用 `npm install -g ./deckflow-deckflow-cli-0.3.0.tgz` 安装本地构建包。安装包自带 SDK 运行时代码。
+如曾为 `@deckflow` 配置 GitHub Packages scope registry，使用公共 npm 前先移除该 scope 配置。旧包用户先参阅[迁移说明](docs/migration-v03.md)。也可以用 `npm install -g ./deckflow-deckflow-cli-0.3.1.tgz` 安装本地构建包。安装包自带 SDK 运行时代码。
 
 GitHub Packages 是独立的可选发布渠道。使用该渠道时，将下面两行添加到用户级 `.npmrc`，通过环境变量提供有包读取权限的 GitHub PAT classic，再执行安装命令：
 
@@ -115,7 +115,7 @@ pnpm release          # 公开发布到 registry.npmjs.org
 pnpm release --github # 发布到 npm.pkg.github.com
 ```
 
-`pnpm release` 成功发布后会自动创建与 `package.json` 版本一致的本地 tag（如 `v0.3.0`），不会自动推送；tag 已存在时会在发布前报错。`--github` 不创建 tag。任一命令可加 `--dry-run` 预览目标和安装包，且不会创建 tag。发布前运行 `pnpm ci:check`，检查翻译、格式、类型、测试和安装包。
+`pnpm release` 成功发布后会自动创建与 `package.json` 版本一致的本地 tag（如 `v0.3.1`），不会自动推送；tag 已存在时会在发布前报错。`--github` 不创建 tag。任一命令可加 `--dry-run` 预览目标和安装包，且不会创建 tag。发布前运行 `pnpm ci:check`，检查翻译、格式、类型、测试和安装包。
 
 GitHub Actions 工作流暂已移除；推送分支或版本 tag 不会自动构建或发布，请使用上述本地发布命令。
 

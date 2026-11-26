@@ -2,7 +2,7 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-`deckflow` is a DeckBase file CLI for developers, agents and CI. It manages files and directories, searches content, reads existing text and visual previews, submits processing jobs and manages revisions. The current package version is `0.3.0`, using the v0.3 command contract.
+`deckflow` is a DeckBase file CLI for developers, agents and CI. It manages files and directories, searches content, reads existing text and visual previews, submits processing jobs and manages revisions. The current package version is `0.3.1`, using the v0.3 command contract.
 
 ## Installation
 
@@ -13,7 +13,7 @@ npm install -g @deckflow/deckflow-cli --registry=https://registry.npmjs.org
 deckflow --version
 ```
 
-Remove any existing GitHub Packages scope registry for `@deckflow` before using public npm. Existing users should read the [migration guide](docs/migration-v03.en.md). A local archive can also be installed with `npm install -g ./deckflow-deckflow-cli-0.3.0.tgz`. SDK runtime code is bundled.
+Remove any existing GitHub Packages scope registry for `@deckflow` before using public npm. Existing users should read the [migration guide](docs/migration-v03.en.md). A local archive can also be installed with `npm install -g ./deckflow-deckflow-cli-0.3.1.tgz`. SDK runtime code is bundled.
 
 GitHub Packages is an optional, independent publishing channel. Add the following to your user `.npmrc`, supply a GitHub PAT classic with package read access through the environment, then install:
 
@@ -105,7 +105,7 @@ pnpm release          # Publish to public npm
 pnpm release --github # Publish to GitHub Packages
 ```
 
-After a successful publication, `pnpm release` creates a local tag matching the package version (for example, `v0.3.0`) without pushing it. An existing tag aborts the release before publication. `--github` skips tag creation. Add `--dry-run` to preview publication without creating a tag. Before publishing, run `pnpm ci:check` to check translations, formatting, types, tests and the installable package.
+After a successful publication, `pnpm release` creates a local tag matching the package version (for example, `v0.3.1`) without pushing it. An existing tag aborts the release before publication. `--github` skips tag creation. Add `--dry-run` to preview publication without creating a tag. Before publishing, run `pnpm ci:check` to check translations, formatting, types, tests and the installable package.
 
 The GitHub Actions workflow has been removed for now. Branch and version tag pushes do not automatically build or publish; use the local publishing commands above.
 
