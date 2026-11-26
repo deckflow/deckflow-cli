@@ -225,7 +225,9 @@ export async function browserLogin(
         )
           throw new CliError(
             "UNSUPPORTED_AUTH_SERVER",
-            "This server shares browser session tokens. Upgrade DeckBase to support dedicated CLI authorization.",
+            t(
+              "当前服务端使用共享浏览器会话 Token；请升级 DeckBase 以支持 CLI 专用授权。",
+            ),
             3,
           );
         if (

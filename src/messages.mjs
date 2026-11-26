@@ -19,6 +19,48 @@ export default {
     "Select a workspace with ws use <id>, --ws or DECKFLOW_WORKSPACE",
   确认选定空间存在且当前凭据拥有访问权限:
     "Verify the selected workspace exists and the credential has access",
+  "DECKFLOW_TOKEN 当前生效；请清除该环境变量后再登录。本地凭据未修改。":
+    "DECKFLOW_TOKEN is active; unset it before logging in. Local credentials have not been changed.",
+  "警告：--mode 已弃用。浏览器登录将签发独立的 CLI Token，30 天有效，授权工作空间读写。请使用 --with-token 导入已有凭据。\n":
+    "Warning: --mode is deprecated. Browser login now issues an independent 30-day workspace read/write CLI token, not a shared browser session. Use --with-token to import an existing credential.\n",
+  "不再支持 --mode apikey；请使用 --with-token 导入 API Key":
+    "--mode apikey is no longer supported; import an API key with --with-token",
+  "已弃用：token 显示警告，apikey 拒绝执行；请使用 --with-token 导入":
+    "Deprecated: token warns; apikey is rejected. Use --with-token for imports",
+  "从标准输入导入 API Key 或 Token":
+    "Import an API key or token from standard input",
+  "列出本地保存的账号，隐藏凭据值":
+    "List locally saved accounts without credential values",
+  "切换当前 API 实例的活动账号":
+    "Switch the active account for this API instance",
+  "DECKFLOW_TOKEN 当前生效；请清除该环境变量后再切换账号。本地凭据未修改。":
+    "DECKFLOW_TOKEN is active; unset it before switching accounts. Local credentials have not been changed.",
+  "请通过 --user 指定账号 ID，可用 auth accounts 查看":
+    "Specify --user with an account ID from auth accounts",
+  "账号 ID 或唯一名称": "Account ID or unique name",
+  "请清除 DECKFLOW_TOKEN 环境变量后再撤销本地凭据":
+    "Unset DECKFLOW_TOKEN before revoking a local credential",
+  没有活动的本地凭据: "No active local credential",
+  "请在 WebUI 的 API Key 设置中撤销密钥":
+    "Revoke API keys in the WebUI API key settings",
+  "先撤销活动 Token，再移除本地凭据":
+    "Revoke the active token before removing it locally",
+  账号配置无效: "Invalid account configuration",
+  活动账号配置无效: "Invalid active account configuration",
+  账号配置中缺少活动账号:
+    "Active account is missing from account configuration",
+  "账号不存在或名称不唯一；请用 auth accounts 查看账号 ID":
+    "Account not found or ambiguous; use auth accounts to list account IDs",
+  "当前服务端使用共享浏览器会话 Token；请升级 DeckBase 以支持 CLI 专用授权。":
+    "This server shares browser session tokens. Upgrade DeckBase to support dedicated CLI authorization.",
+  "认证已过期、被撤销或无效；请运行 deckflow auth login 重新认证。":
+    "Authentication expired, revoked or invalid. Run deckflow auth login to authenticate again.",
+  "账号序号：": "Account number:",
+  "--mode 不能与 --with-token 或 --token-stdin 同时使用":
+    "--mode cannot be combined with --with-token or --token-stdin",
+  "请通过 --with-token 从标准输入提供有效 Token 或 API Key":
+    "Provide a valid token or API key on standard input with --with-token",
+
   "DeckBase 云端文件命令行客户端": "DeckBase cloud file command line client",
   管理本地配置: "Manage local configuration",
   列出用户配置: "List user configuration",

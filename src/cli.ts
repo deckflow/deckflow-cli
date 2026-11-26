@@ -156,7 +156,9 @@ function failure(error: unknown) {
         : (
             {
               2: t("DeckBase 拒绝了请求参数"),
-              3: "Authentication expired, revoked or invalid. Run deckflow auth login to authenticate again.",
+              3: t(
+                "认证已过期、被撤销或无效；请运行 deckflow auth login 重新认证。",
+              ),
               4: t("DeckBase 拒绝访问"),
               5: t("资源不存在或不可访问"),
               6: t("资源状态冲突，请重新读取"),

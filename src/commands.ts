@@ -241,7 +241,9 @@ export function commands(root: Command, register: Register) {
       if (ctx.env.DECKFLOW_TOKEN)
         throw new CliError(
           "AUTH_ENV_OVERRIDE",
-          "DECKFLOW_TOKEN is active; unset it before logging in. Local credentials have not been changed.",
+          t(
+            "DECKFLOW_TOKEN 当前生效；请清除该环境变量后再登录。本地凭据未修改。",
+          ),
           2,
           { source: "environment" },
         );
@@ -249,15 +251,17 @@ export function commands(root: Command, register: Register) {
       const requestedMode = authorizationMode(o.mode);
       if (requestedMode)
         process.stderr.write(
-          "Warning: --mode is deprecated. Browser login now issues an independent 30-day workspace read/write CLI token, not a shared browser session. Use --with-token to import an existing credential.\n",
+          t(
+            "警告：--mode 已弃用。浏览器登录将签发独立的 CLI Token，30 天有效，授权工作空间读写。请使用 --with-token 导入已有凭据。\n",
+          ),
         );
       if (requestedMode === "apikey")
         throw usage(
-          "--mode apikey is no longer supported; import an API key with --with-token",
+          t("不再支持 --mode apikey；请使用 --with-token 导入 API Key"),
         );
       const mode = "token" as const;
       if (importToken && requestedMode)
-        throw usage(t("--mode 不能与 --token-stdin 同时使用"));
+        throw usage(t("--mode 不能与 --with-token 或 --token-stdin 同时使用"));
       const apiUrl = await ctx.apiUrl();
       if (ctx.opts.dryRun) return { dryRun: true, apiUrl };
       if (!importToken)
@@ -271,7 +275,7 @@ export function commands(root: Command, register: Register) {
       if (!token || /\s/.test(token))
         throw new CliError(
           "AUTH_REQUIRED",
-          t("请提供有效 Token，使用 --token-stdin 或 DECKFLOW_TOKEN"),
+          t("请通过 --with-token 从标准输入提供有效 Token 或 API Key"),
           3,
         );
       const user = await identity(ctx, token, apiUrl);
@@ -294,30 +298,28 @@ export function commands(root: Command, register: Register) {
       c
         .option(
           "--mode <mode>",
-          "Deprecated: token warns; apikey is rejected. Use --with-token for imports",
+          t(
+            "已弃用：token 显示警告，apikey 拒绝执行；请使用 --with-token 导入",
+          ),
         )
         .option("--no-browser", t("只显示授权链接，不自动打开浏览器"))
-        .option(
-          "--with-token",
-          "Import an API key or token from standard input",
-        )
+        .option("--with-token", t("从标准输入导入 API Key 或 Token"))
         .option("--token-stdin", t("从标准输入读入 API Key 或 Token")),
   );
-  add(
-    auth,
-    "accounts",
-    "List locally saved accounts without credential values",
-    (ctx) => ctx.accountList(),
+  add(auth, "accounts", t("列出本地保存的账号，隐藏凭据值"), (ctx) =>
+    ctx.accountList(),
   );
   add(
     auth,
     "switch",
-    "Switch the active account for this API instance",
+    t("切换当前 API 实例的活动账号"),
     async (ctx, _, o) => {
       if (ctx.env.DECKFLOW_TOKEN)
         throw new CliError(
           "AUTH_ENV_OVERRIDE",
-          "DECKFLOW_TOKEN is active; unset it before switching accounts. Local credentials have not been changed.",
+          t(
+            "DECKFLOW_TOKEN 当前生效；请清除该环境变量后再切换账号。本地凭据未修改。",
+          ),
           2,
           { source: "environment" },
         );
@@ -338,7 +340,10 @@ export function commands(root: Command, register: Register) {
                   await rl.question(
                     accounts
                       .map((a, i) => `${i + 1}. ${a.name || a.id}`)
-                      .join("\n") + "\nAccount number: ",
+                      .join("\n") +
+                      "\n" +
+                      t("账号序号：") +
+                      " ",
                   ),
                   1,
                   accounts.length,
@@ -348,7 +353,7 @@ export function commands(root: Command, register: Register) {
             rl.close();
           }
         } else
-          throw usage("Specify --user with an account ID from auth accounts");
+          throw usage(t("请通过 --user 指定账号 ID，可用 auth accounts 查看"));
       }
       if (ctx.opts.dryRun)
         return {
@@ -361,7 +366,7 @@ export function commands(root: Command, register: Register) {
         account: await ctx.switchAccount(selector),
       };
     },
-    (c) => c.option("--user <id>", "Account ID or unique name"),
+    (c) => c.option("--user <id>", t("账号 ID 或唯一名称")),
   );
   add(auth, "status", t("验证当前身份"), async (ctx) => {
     const user = await identity(ctx);
@@ -391,13 +396,13 @@ export function commands(root: Command, register: Register) {
         if (ctx.env.DECKFLOW_TOKEN)
           throw new CliError(
             "AUTH_ENV_OVERRIDE",
-            "Unset DECKFLOW_TOKEN before revoking a local credential",
+            t("请清除 DECKFLOW_TOKEN 环境变量后再撤销本地凭据"),
             2,
           );
         const account = await ctx.localAccount();
-        if (!account) throw usage("No active local credential");
+        if (!account) throw usage(t("没有活动的本地凭据"));
         if (account.kind === "apikey" || account.token.startsWith("dbk_"))
-          throw usage("Revoke API keys in the WebUI API key settings");
+          throw usage(t("请在 WebUI 的 API Key 设置中撤销密钥"));
         await (
           await ctx.client(account.token)
         )("auth.remove", undefined);
@@ -410,11 +415,7 @@ export function commands(root: Command, register: Register) {
         environmentTokenActive: !!ctx.env.DECKFLOW_TOKEN,
       };
     },
-    (c) =>
-      c.option(
-        "--revoke",
-        "Revoke the active token before removing it locally",
-      ),
+    (c) => c.option("--revoke", t("先撤销活动 Token，再移除本地凭据")),
   );
   add(root, "status", t("显示身份、地址和工作空间"), async (ctx) => ({
     apiUrl: await ctx.apiUrl(),

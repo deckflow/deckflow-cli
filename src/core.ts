@@ -236,9 +236,7 @@ export function selectAccount<T extends { id: string; name?: string }>(
     (a) => a.id === selector || a.name === selector,
   );
   if (matches.length !== 1)
-    throw usage(
-      "Account not found or ambiguous; use auth accounts to list account IDs",
-    );
+    throw usage(t("账号不存在或名称不唯一；请用 auth accounts 查看账号 ID"));
   return matches[0];
 }
 type StoredCredentials = Partial<
@@ -363,10 +361,9 @@ export class Context {
     const record = (value: unknown): value is Record<string, unknown> =>
       Boolean(value && typeof value === "object" && !Array.isArray(value));
     if (stored.accounts !== undefined) {
-      if (!record(stored.accounts))
-        throw usage("Invalid account configuration");
+      if (!record(stored.accounts)) throw usage(t("账号配置无效"));
       for (const accounts of Object.values(stored.accounts)) {
-        if (!record(accounts)) throw usage("Invalid account configuration");
+        if (!record(accounts)) throw usage(t("账号配置无效"));
         for (const [id, account] of Object.entries(accounts)) {
           if (
             !record(account) ||
@@ -377,7 +374,7 @@ export class Context {
             (account.name !== undefined && typeof account.name !== "string") ||
             (account.expiredAt != null && typeof account.expiredAt !== "string")
           )
-            throw usage("Invalid account configuration");
+            throw usage(t("账号配置无效"));
         }
       }
     }
@@ -388,10 +385,10 @@ export class Context {
           (id) => typeof id !== "string",
         ))
     )
-      throw usage("Invalid active account configuration");
+      throw usage(t("活动账号配置无效"));
     for (const [url, id] of Object.entries(stored.activeAccounts ?? {}))
       if (!stored.accounts?.[url] || !Object.hasOwn(stored.accounts[url], id))
-        throw usage("Active account is missing from account configuration");
+        throw usage(t("账号配置中缺少活动账号"));
     return stored;
   }
   private async updateCredentials(update: (data: StoredCredentials) => void) {
