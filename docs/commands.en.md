@@ -61,3 +61,16 @@ deckflow view /report.pdf --revision REVISION_ID --json
 ```
 
 Downloads return `revisionId` and download audit/request IDs. Text and preview results return `revision`; preview retrieval parameters reference that revision. Downloads retain the existing authorization, billing and audit flow. Foreign, expired and inaccessible revisions return the standard error envelope and HTTP status without falling back to current content. A mismatched content response returns `REVISION_MISMATCH`. Historical `view --url` returns `UNSUPPORTED_OPERATION`; artifact descriptions provide access to existing previews without scheduling conversions.
+
+## Configuration and connectivity diagnostics
+
+```sh
+deckflow doctor --json
+deckflow doctor --ws WORKSPACE_ID --timeout 5 --json
+```
+
+The report is in the standard success envelope's `data`. Here `ok: true` means diagnostics completed; inspect `data.healthy` for health. `schema_version` is 1. `exit_code` is 0 for healthy results (possibly with warnings), or 1 for failed/skipped checks. Argument errors retain exit code 2.
+
+Stable check IDs are `config`, `api_url`, `credentials`, `identity_api`, `workspaces_api`, `workspace` and `workspace_api`. Each includes `id`, `status` (`pass/fail/warning/skipped`) and a machine-readable `code`. Failed/skipped checks include `suggestion`; HTTP failures include `http_status`. `source` identifies configuration/credential precedence without exposing stored values.
+
+If identity returns 401/403/404 while workspace listing succeeds, the identity check becomes an `IDENTITY_ROUTE_RESTRICTED` warning. Unsupported routes report `NOT_IMPLEMENTED`. Endpoint, authentication, permission, workspace and backend failures have distinct codes. Remote checks with unmet dependencies report `DEPENDENCY_FAILED`. Probes only call read APIs, never change configuration, create authentication files or request download grants, and omit tokens, signed URLs and server error bodies.

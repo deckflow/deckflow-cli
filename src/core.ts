@@ -305,8 +305,8 @@ export class Context {
       await rm(temp, { force: true });
     }
   }
-  private async clientUUID() {
-    if (!this.opts.dryRun) await this.initialize();
+  private async clientUUID(readOnly = false) {
+    if (!this.opts.dryRun && !readOnly) await this.initialize();
     let value: string;
     try {
       value = (
@@ -314,7 +314,7 @@ export class Context {
       ).trim();
     } catch (error) {
       if (
-        this.opts.dryRun &&
+        (this.opts.dryRun || readOnly) &&
         (error as NodeJS.ErrnoException).code === "ENOENT"
       )
         return this.dryRunUUID;
@@ -570,7 +570,11 @@ export class Context {
     if (!token) throw new CliError("AUTH_REQUIRED", t("请先登录"), 3);
     return createHash("sha256").update(token).digest("hex");
   }
-  async client(credential?: string, apiUrl?: string): Promise<ApiCall> {
+  async client(
+    credential?: string,
+    apiUrl?: string,
+    readOnly = false,
+  ): Promise<ApiCall> {
     const url = apiUrl ?? (await this.apiUrl());
     let token = credential ?? this.env.DECKFLOW_TOKEN;
     if (!token && credential === undefined) {
@@ -612,7 +616,7 @@ export class Context {
         }
         return response;
       },
-      await this.clientUUID(),
+      await this.clientUUID(readOnly),
     );
     return async <M extends Method>(
       method: M,

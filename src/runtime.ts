@@ -1,3 +1,4 @@
+import { doctor } from "./doctor.js";
 import { t } from "./i18n.mjs";
 import { Command } from "commander";
 import { constants as bufferConstants } from "node:buffer";
@@ -420,6 +421,7 @@ export function commands(root: Command, register: Register) {
       return run(ctx, args, o);
     });
   };
+  add(root, "doctor", t("诊断配置与连接"), async (ctx) => doctor(ctx));
   const stub = (p: Command, s: string, opts?: (c: Command) => Command) =>
     add(
       p,

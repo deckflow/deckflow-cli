@@ -1,8 +1,17 @@
 declare const messages: {
   "无效版本 ID": string;
+  诊断配置与连接: string;
   读取指定历史版本: string;
   内容版本不匹配: string;
   "历史版本的 Web 深链接": string;
+  "先修复配置、地址或凭据检查": string;
+  "检查本地凭据文件的 JSON 格式和读取权限": string;
+  "配置正确的 HTTP(S) API 基础地址": string;
+  "设置 DECKFLOW_TOKEN 或重新登录，并检查客户端标识文件": string;
+  "重新登录或检查 API Key 是否允许身份接口": string;
+  "检查 API 地址、网络以及凭据的空间列表权限": string;
+  "用 ws use <id> 设置空间，或指定 --ws / DECKFLOW_WORKSPACE": string;
+  确认选定空间存在且当前凭据拥有访问权限: string;
   "DeckBase 云端文件命令行客户端": string;
   管理本地配置: string;
   列出用户配置: string;

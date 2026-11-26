@@ -3730,3 +3730,102 @@ describe("issue 31: historical revisions", () => {
     },
   );
 });
+
+describe("issue 32: diagnostics", () => {
+  it("diagnoses identity route restrictions independently without writing state or exposing server responses", async () => {
+    handler = (_, res, path) => {
+      if (path.split("?")[0].endsWith("/user"))
+        return json(
+          res,
+          {
+            code: "forbidden",
+            message: "test-token https://secret/?signature=secret",
+          },
+          403,
+        );
+      if (path.includes("/my/spaces")) return json(res, []);
+      if (path.endsWith("/spaces/ws")) return json(res, { id: "ws" });
+    };
+    const run = await cli(["doctor", "--json"]);
+    expect(run.code, run.stdout).toBe(0);
+    const report = JSON.parse(run.stdout).data;
+    expect(report.healthy).toBe(true);
+    expect(
+      report.checks.find((c: { id: string }) => c.id === "identity_api"),
+    ).toMatchObject({ status: "warning", code: "IDENTITY_ROUTE_RESTRICTED" });
+    expect(run.stdout).not.toContain("test-token");
+    expect(run.stdout).not.toContain("signature");
+    expect(requests.every((r) => r.method === "GET")).toBe(true);
+    expect(await readdir(temp)).toEqual([]);
+  });
+
+  it("reports corrupt local configuration while still probing environment credentials", async () => {
+    await mkdir(join(temp, ".deckflow"));
+    await writeFile(
+      join(temp, ".deckflow", "credentials"),
+      "secret-invalid-json",
+    );
+    handler = (_, res) => json(res, {}, 401);
+    const run = await cli(["doctor", "--json"]);
+    expect(run.code).toBe(1);
+    const report = JSON.parse(run.stdout).data;
+    expect(report.checks).toHaveLength(7);
+    expect(
+      report.checks.find((c: { id: string }) => c.id === "config").code,
+    ).toBe("CONFIG_UNREADABLE");
+    expect(
+      report.checks.find((c: { id: string }) => c.id === "identity_api").code,
+    ).toBe("UNAUTHENTICATED");
+    expect(run.stdout).not.toContain("secret-invalid-json");
+  });
+
+  it("reports unsupported APIs and missing workspace permissions independently", async () => {
+    handler = (_, res, path) => {
+      if (path.split("?")[0].endsWith("/user")) return json(res, {}, 501);
+      if (path.includes("/my/spaces")) return json(res, []);
+      if (path.endsWith("/spaces/ws")) return json(res, {}, 403);
+    };
+    const run = await cli(["doctor", "--json"]);
+    expect(run.code).toBe(1);
+    const checks = JSON.parse(run.stdout).data.checks;
+    expect(
+      checks.find((c: { id: string }) => c.id === "identity_api").code,
+    ).toBe("NOT_IMPLEMENTED");
+    expect(
+      checks.find((c: { id: string }) => c.id === "workspaces_api").status,
+    ).toBe("pass");
+    expect(
+      checks.find((c: { id: string }) => c.id === "workspace_api").code,
+    ).toBe("PERMISSION_DENIED");
+  });
+
+  it("rejects unsafe endpoint configuration without making network requests", async () => {
+    const run = await cli(["doctor", "--json"], {
+      DECKFLOW_API_URL: "https://user:secret@example.com/api?signature=secret",
+    });
+    expect(run.code).toBe(1);
+    expect(
+      JSON.parse(run.stdout).data.checks.find(
+        (c: { id: string }) => c.id === "api_url",
+      ).code,
+    ).toBe("INVALID_API_ENDPOINT");
+    expect(run.stdout).not.toContain("secret");
+    expect(requests).toHaveLength(0);
+  });
+
+  it("returns all diagnostic checks with missing endpoint, credentials and workspace", async () => {
+    const run = await cli(["doctor", "--json"], {
+      DECKFLOW_API_URL: "",
+      DECKFLOW_TOKEN: "",
+      DECKFLOW_WORKSPACE: "",
+    });
+    expect(run.code).toBe(1);
+    const report = JSON.parse(run.stdout).data;
+    expect(report.checks).toHaveLength(7);
+    expect(
+      report.checks.find((c: { id: string }) => c.id === "workspace").code,
+    ).toBe("WORKSPACE_REQUIRED");
+    expect(requests).toHaveLength(0);
+    expect(await readdir(temp)).toEqual([]);
+  });
+});

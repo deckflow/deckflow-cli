@@ -303,6 +303,12 @@ commands(root, (cmd, run) => {
     if (!/^\d+$/.test(global.timeout ?? "30") || Number(global.timeout) <= 0)
       throw new CliError("INVALID_ARGUMENT", t("--timeout 必须为正整数秒"), 2);
     const ctx = new Context(global);
+    if (cmd.name() === "doctor") {
+      const report = (await run(ctx, [], options)) as { exit_code: number };
+      display(report, Boolean(global.json));
+      process.exitCode = report.exit_code;
+      return;
+    }
     workspaceId = (await ctx.spaceInfo()).id;
     if (cmd.name() !== "capabilities" && cmd.parent?.name() !== "config")
       await ctx.initialize();

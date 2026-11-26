@@ -1,8 +1,24 @@
 export default {
   "无效版本 ID": "Invalid revision ID",
+  诊断配置与连接: "Diagnose configuration and connectivity",
   读取指定历史版本: "Read a specific historical revision",
   内容版本不匹配: "Content revision does not match",
   "历史版本的 Web 深链接": "Web deep links to historical revisions",
+  "先修复配置、地址或凭据检查":
+    "Fix configuration, endpoint or credential checks first",
+  "检查本地凭据文件的 JSON 格式和读取权限":
+    "Check the local credentials file JSON format and read permissions",
+  "配置正确的 HTTP(S) API 基础地址": "Configure a valid HTTP(S) API base URL",
+  "设置 DECKFLOW_TOKEN 或重新登录，并检查客户端标识文件":
+    "Set DECKFLOW_TOKEN or log in again, and check the client UUID file",
+  "重新登录或检查 API Key 是否允许身份接口":
+    "Log in again or check API key access to the identity route",
+  "检查 API 地址、网络以及凭据的空间列表权限":
+    "Check the API URL, network and workspace list permissions",
+  "用 ws use <id> 设置空间，或指定 --ws / DECKFLOW_WORKSPACE":
+    "Select a workspace with ws use <id>, --ws or DECKFLOW_WORKSPACE",
+  确认选定空间存在且当前凭据拥有访问权限:
+    "Verify the selected workspace exists and the credential has access",
   "DeckBase 云端文件命令行客户端": "DeckBase cloud file command line client",
   管理本地配置: "Manage local configuration",
   列出用户配置: "List user configuration",
