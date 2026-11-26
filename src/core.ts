@@ -228,6 +228,19 @@ export type LocalAccount = {
   expiredAt?: string | null;
   kind?: string;
 };
+export function selectAccount<T extends { id: string; name?: string }>(
+  accounts: T[],
+  selector: string,
+): T {
+  const matches = accounts.filter(
+    (a) => a.id === selector || a.name === selector,
+  );
+  if (matches.length !== 1)
+    throw usage(
+      "Account not found or ambiguous; use auth accounts to list account IDs",
+    );
+  return matches[0];
+}
 type StoredCredentials = Partial<
   Record<
     (typeof configFields)[keyof Config]["storedAs"] | "token" | "tokenApiRoot",
@@ -499,19 +512,13 @@ export class Context {
           createHash("sha256").update(data.token).digest("hex").slice(0, 16);
         accounts[id] = { id, token: data.token };
       }
-      const matches = Object.values(accounts).filter(
-        (a) => a.id === selector || a.name === selector,
-      );
-      if (matches.length !== 1)
-        throw usage(
-          "Account not found or ambiguous; use auth accounts to list account IDs",
-        );
+      const selected = selectAccount(Object.values(accounts), selector);
       data.accounts ??= {};
       data.accounts[url] = accounts;
       data.activeAccounts ??= {};
-      data.activeAccounts[url] = matches[0].id;
+      data.activeAccounts[url] = selected.id;
       data.tokenApiRoot = url;
-      data.token = matches[0].token;
+      data.token = selected.token;
     });
     return (await this.accountList()).find((a) => a.active);
   }
