@@ -17,7 +17,7 @@
 | mv                | 同目录改名或保持名称跨目录移动；同时移动改名不支持                                          |
 | rm                | 默认软删除当前不支持；`--permanent --yes` 进入真实删除任务                                  |
 | cat               | 仅现成 UTF-8 原文，无自动提取或 AI 理解                                                     |
-| view              | 当前 revision 的已有预览；返回 artifact 获取描述；`--url` 只输出 viewer 链接                |
+| view              | 所选 revision 的已有预览；返回 artifact 获取描述；`--url` 只输出 viewer 链接                |
 | find              | 元数据名称 glob、类型、创建日期过滤                                                         |
 | grep / seek / ask | RE2 内容匹配、语义检索、带真实依据的问答                                                    |
 | search            | lexical/hybrid 模式缺接口，返回 NOT_IMPLEMENTED                                             |
@@ -47,3 +47,16 @@ deckflow ops convert /Reports/report.docx --to pdf --output /Reports/export.pdf 
 预览和产物通过返回的 SDK method/params 或 artifact ID 获取，访问仍由服务端授权；不创建公开分享。处理默认只产生后台 artifact，不自动创建受管文件。render 多产物持久化要求已有输出目录，已有路径始终冲突。
 
 `ws members` 与 `ws usage/quota/balance` 的 API Key 兼容性取决于服务端允许列表。403 时请检查 `error.details.server_reason`，区分接口不接受 API Key 与账号权限不足；详见[认证与工作空间](auth-and-workspaces.md#api-key-与命令兼容性)。
+
+## 历史版本读取
+
+`get`、`cat`、`view` 支持 `--revision <id>`，文件可用绝对路径或 `id:<id>` 指定，省略时读取当前版本。
+
+```sh
+deckflow version ls /report.pdf --json
+deckflow get /report.pdf ./report-old.pdf --revision REVISION_ID --json
+deckflow cat id:FILE_ID --revision REVISION_ID --json
+deckflow view /report.pdf --revision REVISION_ID --json
+```
+
+`get` 的结果包含 `revisionId`、下载审计 ID 和请求 ID；`cat/view` 包含 `revision`，预览产物的 retrieval 参数也绑定该版本。下载继续走统一下载授权、计费和审计接口。版本不属于文件、已失效或不可访问时，返回标准错误信封及 HTTP 状态，不回退到当前版本。内容响应版本不符时返回 `REVISION_MISMATCH`。`view --revision` 不支持 `--url`，返回 `UNSUPPORTED_OPERATION`；可通过产物描述读取已有预览，不触发新转换。

@@ -56,7 +56,7 @@ deckflow view id:FILE_ID --url
 
 Replace IDs with actual values. `ws use` persists the default workspace. Override it temporarily with `--ws OTHER_WORKSPACE_ID`. Workspace precedence is `--ws` → `DECKFLOW_WORKSPACE` → saved default; missing all three produces `WORKSPACE_REQUIRED`.
 
-- Objects: `ls/info/mkdir/new/put/get/cp/mv/rm`. `cat` reads existing UTF-8 text; `view` reads existing previews for the current revision.
+- Objects: `ls/info/mkdir/new/put/get/cp/mv/rm`. `cat` reads existing UTF-8 text; `view` reads existing previews. All three read commands (`get/cat/view`) accept `--revision <id>` for historical content.
 - Retrieval: `find` filters metadata, `grep` matches content with RE2, `seek` performs semantic retrieval and `ask` returns grounded answers. Lexical/hybrid `search` is not connected.
 - Workspaces: `ws`; file processing: `ops`; jobs: `jobs`; history: `version`.
 - Structured files: `pptx/docx` expose capabilities; deep structure reading and editing are not implemented.

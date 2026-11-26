@@ -760,20 +760,22 @@ export async function download(
     );
   if (!(await lstat(dirname(target))).isDirectory())
     throw usage(t("下载目标的父路径不是目录"));
-  if (ctx.opts.dryRun)
-    return ctx.confirm(
-      t("下载"),
-      { spaceId, fileId, revisionId: opts.revision, path: target },
-      true,
-    );
   const revisionId = opts.revision ?? file.currentRevisionId;
   if (!revisionId)
     throw new CliError("CONTENT_NOT_AVAILABLE", t("文件尚无可下载版本"), 6);
+  if (ctx.opts.dryRun)
+    return ctx.confirm(
+      t("下载"),
+      { spaceId, fileId, revisionId, path: target },
+      true,
+    );
   const content = await api("revision.content", {
     spaceId,
     fileId,
     revisionId,
   });
+  if (content.revisionId !== revisionId)
+    throw new CliError("REVISION_MISMATCH", t("内容版本不匹配"), 6);
   const requestId = randomUUID();
   const grant = await api("file.download", {
     spaceId,

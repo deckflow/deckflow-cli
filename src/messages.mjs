@@ -1,4 +1,8 @@
 export default {
+  "无效版本 ID": "Invalid revision ID",
+  读取指定历史版本: "Read a specific historical revision",
+  内容版本不匹配: "Content revision does not match",
+  "历史版本的 Web 深链接": "Web deep links to historical revisions",
   "DeckBase 云端文件命令行客户端": "DeckBase cloud file command line client",
   管理本地配置: "Manage local configuration",
   列出用户配置: "List user configuration",

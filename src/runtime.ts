@@ -415,6 +415,8 @@ export function commands(root: Command, register: Register) {
         throw usage(t("--if-version 不能为空"));
       if (o.idempotencyKey !== undefined && !o.idempotencyKey)
         throw usage(t("--idempotency-key 不能为空"));
+      if (o.revision !== undefined && !/^[A-Za-z0-9_-]+$/.test(o.revision))
+        throw usage(t("无效版本 ID"));
       return run(ctx, args, o);
     });
   };
@@ -476,70 +478,96 @@ export function commands(root: Command, register: Register) {
     if (!content) return { ...row, content_status: "unavailable" };
     return { ...row, mime_type: content.mediaType, size_bytes: content.bytes };
   });
-  add(root, "cat <file>", t("读取已有 UTF-8 文本"), async (ctx, [path]) => {
-    const row = await file(ctx, path),
-      api = await ctx.client();
-    const c = await api("file.content", {
-      spaceId: await ctx.space(),
-      fileId: row.id,
-    });
-    if (ctx.opts.dryRun)
-      return {
-        dry_run: true,
+  add(
+    root,
+    "cat <file>",
+    t("读取已有 UTF-8 文本"),
+    async (ctx, [path], o) => {
+      const row = await file(ctx, path),
+        api = await ctx.client();
+      if (o.revision)
+        await api("revision.detail", {
+          spaceId: await ctx.space(),
+          fileId: row.id,
+          revisionId: o.revision,
+        });
+      const c = o.revision
+        ? await api("revision.content", {
+            spaceId: await ctx.space(),
+            fileId: row.id,
+            revisionId: o.revision,
+          })
+        : await api("file.content", {
+            spaceId: await ctx.space(),
+            fileId: row.id,
+          });
+      if (o.revision && c.revisionId !== o.revision)
+        fail("REVISION_MISMATCH", t("内容版本不匹配"), 6);
+      if (ctx.opts.dryRun)
+        return {
+          dry_run: true,
+          file_id: row.id,
+          path: row.path,
+          revision: c.revisionId ?? row.currentRevisionId,
+          size_bytes: c.bytes,
+          mime_type: c.mediaType,
+        };
+      if (!/^(text\/|application\/(json|xml))/.test(c.mediaType))
+        fail("TEXT_NOT_AVAILABLE", t("没有可读文本表示"));
+      const res = await ctx.fetch(c.url, {
+        signal: AbortSignal.timeout(ctx.requestMs),
+      });
+      if (!res.ok) {
+        await res.body?.cancel();
+        throw Object.assign(new Error(t("文本读取失败")), {
+          status: res.status,
+        });
+      }
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      if (
+        (typeof c.bytes === "number" && bytes.byteLength !== c.bytes) ||
+        (c.sha256 &&
+          createHash("sha256").update(bytes).digest("hex") !== c.sha256)
+      )
+        fail("DOWNLOAD_INTEGRITY_FAILED", t("下载内容与服务端校验值不一致"), 9);
+      const chunks: string[] = [];
+      try {
+        const decoder = new TextDecoder("utf-8", {
+          fatal: true,
+          ignoreBOM: true,
+        });
+        for (let offset = 0; offset < bytes.length; offset += 1024 * 1024)
+          chunks.push(
+            decoder.decode(bytes.subarray(offset, offset + 1024 * 1024), {
+              stream: true,
+            }),
+          );
+        chunks.push(decoder.decode());
+      } catch {
+        return fail("TEXT_NOT_AVAILABLE", t("内容不是 UTF-8 文本"));
+      }
+      const metadata = {
         file_id: row.id,
         path: row.path,
-        size_bytes: c.bytes,
-        mime_type: c.mediaType,
+        revision: c.revisionId ?? row.currentRevisionId,
+        source: "original_text",
       };
-    if (!/^(text\/|application\/(json|xml))/.test(c.mediaType))
-      fail("TEXT_NOT_AVAILABLE", t("没有可读文本表示"));
-    const res = await ctx.fetch(c.url, {
-      signal: AbortSignal.timeout(ctx.requestMs),
-    });
-    if (!res.ok) {
-      await res.body?.cancel();
-      throw Object.assign(new Error(t("文本读取失败")), { status: res.status });
-    }
-    const bytes = new Uint8Array(await res.arrayBuffer());
-    if (
-      (typeof c.bytes === "number" && bytes.byteLength !== c.bytes) ||
-      (c.sha256 &&
-        createHash("sha256").update(bytes).digest("hex") !== c.sha256)
-    )
-      fail("DOWNLOAD_INTEGRITY_FAILED", t("下载内容与服务端校验值不一致"), 9);
-    const chunks: string[] = [];
-    try {
-      const decoder = new TextDecoder("utf-8", {
-        fatal: true,
-        ignoreBOM: true,
-      });
-      for (let offset = 0; offset < bytes.length; offset += 1024 * 1024)
-        chunks.push(
-          decoder.decode(bytes.subarray(offset, offset + 1024 * 1024), {
-            stream: true,
-          }),
+      if (!ctx.opts.json) return { ...metadata, text_chunks: chunks };
+      if (
+        chunks.reduce((size, chunk) => size + chunk.length, 0) >
+        bufferConstants.MAX_STRING_LENGTH - 1024 * 1024
+      )
+        fail(
+          "TEXT_SIZE_LIMIT",
+          t(
+            "文本超过单个 JSON 字符串的运行时大小限制；请使用普通文本输出或 get",
+          ),
+          2,
         );
-      chunks.push(decoder.decode());
-    } catch {
-      return fail("TEXT_NOT_AVAILABLE", t("内容不是 UTF-8 文本"));
-    }
-    const metadata = {
-      file_id: row.id,
-      path: row.path,
-      source: "original_text",
-    };
-    if (!ctx.opts.json) return { ...metadata, text_chunks: chunks };
-    if (
-      chunks.reduce((size, chunk) => size + chunk.length, 0) >
-      bufferConstants.MAX_STRING_LENGTH - 1024 * 1024
-    )
-      fail(
-        "TEXT_SIZE_LIMIT",
-        t("文本超过单个 JSON 字符串的运行时大小限制；请使用普通文本输出或 get"),
-        2,
-      );
-    return { ...metadata, text: chunks.join("") };
-  });
+      return { ...metadata, text: chunks.join("") };
+    },
+    (c) => c.option("--revision <id>", t("读取指定历史版本")),
+  );
   add(
     root,
     "mkdir <directory>",
@@ -630,8 +658,9 @@ export function commands(root: Command, register: Register) {
       download(ctx, (await file(ctx, source)).id, {
         output: path,
         overwrite: !!o.force,
+        revision: o.revision,
       }),
-    (c) => c.option("--force"),
+    (c) => c.option("--force").option("--revision <id>", t("读取指定历史版本")),
   );
   const put: Run = async (ctx, [local, path], o) => {
     if (o.resume) {
@@ -999,7 +1028,9 @@ export function commands(root: Command, register: Register) {
       integer(o.limit ?? "50", 1, 100);
       if (o.url && (o.page !== undefined || o.pages !== undefined))
         throw usage(t("--url 不支持页面选择"));
+      if (o.url && o.revision) throw unsupported(t("历史版本的 Web 深链接"));
       const row = await file(ctx, path);
+      const revisionId = o.revision ?? row.currentRevisionId;
       if (o.url)
         return {
           viewer_url:
@@ -1009,24 +1040,34 @@ export function commands(root: Command, register: Register) {
         };
       const api = await ctx.client(),
         spaceId = await ctx.space();
-      if (!row.currentRevisionId)
-        fail("PREVIEW_NOT_AVAILABLE", t("没有当前版本预览"));
-      const representation = await api("file.content", {
-        spaceId,
-        fileId: row.id,
-      });
+      if (!revisionId) fail("PREVIEW_NOT_AVAILABLE", t("没有当前版本预览"));
+      if (o.revision)
+        await api("revision.detail", {
+          spaceId,
+          fileId: row.id,
+          revisionId: o.revision,
+        });
+      const representation = o.revision
+        ? await api("revision.content", {
+            spaceId,
+            fileId: row.id,
+            revisionId: o.revision,
+          })
+        : await api("file.content", { spaceId, fileId: row.id });
+      if (o.revision && representation.revisionId !== revisionId)
+        fail("REVISION_MISMATCH", t("内容版本不匹配"), 6);
       if (
         typeof representation.mediaType === "string" &&
         representation.mediaType.startsWith("image/")
       ) {
         if (o.page || o.pages) throw usage(t("单图不支持页面选择"));
         if (o.cursor !== undefined) throw usage(t("单图不支持游标分页"));
-        if (representation.revisionId !== row.currentRevisionId)
+        if (representation.revisionId !== revisionId)
           fail("PREVIEW_OUTDATED", t("视觉资源版本已变化"));
         return {
           file_id: row.id,
           path: row.path,
-          revision: row.currentRevisionId,
+          revision: revisionId,
           status: "ready",
           viewer_url: null,
           pages: [],
@@ -1038,7 +1079,7 @@ export function commands(root: Command, register: Register) {
               params: {
                 spaceId,
                 fileId: row.id,
-                revisionId: row.currentRevisionId,
+                revisionId: revisionId,
               },
             },
           },
@@ -1047,7 +1088,7 @@ export function commands(root: Command, register: Register) {
       const tasks = await api("conversion.list", {
         spaceId,
         fileId: row.id,
-        revisionId: row.currentRevisionId!,
+        revisionId: revisionId!,
       });
       const task = tasks.items.find(
         (t) =>
@@ -1061,7 +1102,7 @@ export function commands(root: Command, register: Register) {
         {
           spaceId,
           fileId: row.id,
-          revisionId: row.currentRevisionId!,
+          revisionId: revisionId!,
           operationId: task!.operationId,
         },
         task!.outputs,
@@ -1076,7 +1117,7 @@ export function commands(root: Command, register: Register) {
           params: {
             spaceId,
             fileId: row.id,
-            revisionId: row.currentRevisionId,
+            revisionId: revisionId,
             operationId: task!.operationId,
             artifactId: x.artifactId,
             itemId: x.itemId,
@@ -1097,14 +1138,14 @@ export function commands(root: Command, register: Register) {
       }
       if (!selected.length) throw usage(t("页码超出范围"));
       if (
-        (await file(ctx, "id:" + row.id)).currentRevisionId !==
-        row.currentRevisionId
+        !o.revision &&
+        (await file(ctx, "id:" + row.id)).currentRevisionId !== revisionId
       )
         fail("PREVIEW_OUTDATED", t("预览版本已变化"));
       return {
         file_id: row.id,
         path: row.path,
-        revision: row.currentRevisionId,
+        revision: revisionId,
         status: "ready",
         viewer_url: null,
         ...listing(
@@ -1114,7 +1155,7 @@ export function commands(root: Command, register: Register) {
             await ctx.apiUrl(),
             spaceId,
             row.id,
-            row.currentRevisionId,
+            revisionId,
             task!.operationId,
             o.page,
             o.pages,
@@ -1127,7 +1168,7 @@ export function commands(root: Command, register: Register) {
             await ctx.apiUrl(),
             spaceId,
             row.id,
-            row.currentRevisionId,
+            revisionId,
             task!.operationId,
             o.page,
             o.pages,
@@ -1139,7 +1180,8 @@ export function commands(root: Command, register: Register) {
       paginate(c)
         .option("--page <n>")
         .option("--pages <range>")
-        .option("--url"),
+        .option("--url")
+        .option("--revision <id>", t("读取指定历史版本")),
   );
   add(
     root,

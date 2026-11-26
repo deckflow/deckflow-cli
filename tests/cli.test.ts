@@ -3569,3 +3569,164 @@ it("issue 125 refuses a legacy server's shared browser token without saving or e
     stat(join(temp, ".deckflow", "credentials")),
   ).rejects.toMatchObject({ code: "ENOENT" });
 });
+
+describe("issue 31: historical revisions", () => {
+  it.each(["id:f1", "/old.txt"])(
+    "reads and downloads the selected revision via %s",
+    async (selector) => {
+      handler = (req, res, path, body) => {
+        if (path === "/bytes") return res.end("old");
+        if (path.endsWith("/download")) {
+          expect(JSON.parse(body.toString()).revisionId).toBe("r0");
+          return json(res, {
+            downloadId: "audit-old",
+            revisionId: "r0",
+            url: base + "/bytes",
+          });
+        }
+        if (path.endsWith("/revisions/r0/content"))
+          return json(res, {
+            revisionId: "r0",
+            mediaType: "text/plain",
+            bytes: 3,
+            sha256: hash("old"),
+            url: base + "/bytes",
+          });
+        if (path.endsWith("/revisions/r0"))
+          return json(res, { id: "r0", name: "old.txt" });
+        if (path.endsWith("/files/f1"))
+          return json(res, { ...sampleFile, name: "old.txt" });
+        if (path.includes("/folders")) return json(res, { rows: [], count: 0 });
+        if (path.includes("/files"))
+          return json(res, {
+            rows: [{ ...sampleFile, name: "old.txt" }],
+            count: 1,
+          });
+      };
+      const cat = result(
+        await cli(["cat", selector, "--revision", "r0", "--json"]),
+      );
+      expect(cat.revision).toBe("r0");
+      expect(cat.text).toBe("old");
+      const get = result(
+        await cli(["get", selector, "old-local", "--revision", "r0", "--json"]),
+      );
+      expect(get.revisionId).toBe("r0");
+      expect(get.download_id).toBe("audit-old");
+      expect(await readFile(join(temp, "old-local"), "utf8")).toBe("old");
+    },
+  );
+
+  it("binds historical image previews to the selected revision", async () => {
+    handler = (_, res, path) => {
+      if (path.endsWith("/files/f1")) return json(res, sampleFile);
+      if (path.endsWith("/revisions/r0")) return json(res, { id: "r0" });
+      if (path.endsWith("/revisions/r0/content"))
+        return json(res, { revisionId: "r0", mediaType: "image/png" });
+    };
+    const data = result(
+      await cli(["view", "id:f1", "--revision", "r0", "--json"]),
+    );
+    expect(data.revision).toBe("r0");
+    expect(data.image.retrieval.params.revisionId).toBe("r0");
+    expect(requests.every((r) => r.method === "GET")).toBe(true);
+    expect(
+      result(
+        await cli(["view", "id:f1", "--revision", "r0", "--url", "--json"]),
+        2,
+      ).code,
+    ).toBe("UNSUPPORTED_OPERATION");
+  });
+
+  it("binds paginated document preview artifacts to a historical revision", async () => {
+    handler = (_, res, path) => {
+      if (path.endsWith("/files/f1")) return json(res, sampleFile);
+      if (path.endsWith("/revisions/r0")) return json(res, { id: "r0" });
+      if (path.endsWith("/revisions/r0/content"))
+        return json(res, { revisionId: "r0", mediaType: "application/pdf" });
+      if (path.includes("/conversions")) {
+        expect(path).toContain("/revisions/r0/");
+        return json(res, {
+          items: [
+            {
+              operationId: "old-preview",
+              target: "screenshots",
+              status: "succeeded",
+              outputs: [
+                { ordinal: 0, artifactId: "a", mediaType: "image/webp" },
+                { ordinal: 1, artifactId: "b", mediaType: "image/webp" },
+              ],
+            },
+          ],
+        });
+      }
+    };
+    const data = result(
+      await cli([
+        "view",
+        "id:f1",
+        "--revision",
+        "r0",
+        "--limit",
+        "1",
+        "--json",
+      ]),
+    );
+    expect(data.revision).toBe("r0");
+    expect(data.pages).toHaveLength(1);
+    expect(data.pages[0].retrieval.params.revisionId).toBe("r0");
+    expect(data.next_cursor).toBeTruthy();
+    expect(requests.every((r) => r.method === "GET")).toBe(true);
+  });
+
+  it("rejects mismatched revision content before reading bytes or billing a download", async () => {
+    handler = (_, res, path) => {
+      if (path.endsWith("/files/f1")) return json(res, sampleFile);
+      if (path.endsWith("/revisions/r0")) return json(res, { id: "r0" });
+      if (path.endsWith("/revisions/r0/content"))
+        return json(res, {
+          revisionId: "r1",
+          mediaType: "text/plain",
+          url: base + "/bytes",
+        });
+    };
+    for (const args of [
+      ["cat", "id:f1"],
+      ["get", "id:f1", "target"],
+      ["view", "id:f1"],
+    ]) {
+      expect(
+        result(await cli([...args, "--revision", "r0", "--json"]), 4).code,
+      ).toBe("REVISION_MISMATCH");
+    }
+    expect(
+      requests.some((r) => r.path === "/bytes" || r.path.endsWith("/download")),
+    ).toBe(false);
+  });
+
+  it.each([403, 404, 410])(
+    "reports historical revision errors (%s) without falling back",
+    async (status) => {
+      handler = (_, res, path) => {
+        if (path.endsWith("/files/f1")) return json(res, sampleFile);
+        if (path.endsWith("/revisions/r0"))
+          return json(res, { code: "REVISION_UNAVAILABLE" }, status);
+      };
+      for (const args of [
+        ["cat", "id:f1"],
+        ["get", "id:f1", "target"],
+        ["view", "id:f1"],
+      ]) {
+        const run = await cli([...args, "--revision", "r0", "--json"]);
+        expect(run.code).not.toBe(0);
+        const error = JSON.parse(run.stdout).error;
+        expect(error.details.status).toBe(status);
+      }
+      expect(
+        requests.some(
+          (r) => r.path.endsWith("/content") || r.path.endsWith("/download"),
+        ),
+      ).toBe(false);
+    },
+  );
+});

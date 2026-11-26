@@ -18,7 +18,7 @@ Use `--lang en|zh|auto`, `DECKFLOW_LANG`, or `config set lang en|zh|auto` to sel
 | mv                | Rename in place or move with the same name; simultaneous move and rename is unsupported                          |
 | rm                | Soft deletion unavailable; --permanent --yes submits a real deletion job                                         |
 | cat               | Existing UTF-8 original content only; no automatic extraction or AI interpretation                               |
-| view              | Existing current-revision previews; artifact retrieval descriptors; --url prints only the viewer link            |
+| view              | Existing selected-revision previews; artifact retrieval descriptors; --url prints only the viewer link           |
 | find              | Metadata name glob, type and creation date filters                                                               |
 | grep / seek / ask | RE2 content matching, semantic retrieval and grounded answers                                                    |
 | search            | Lexical/hybrid endpoints unavailable; NOT_IMPLEMENTED                                                            |
@@ -48,3 +48,16 @@ Plain and JSON `ls` entries retain only id, name, kind, path and available forma
 Retrieve previews and artifacts using returned SDK method/params or artifact IDs. Server authorization still applies; no public share is created. Processing produces backend artifacts by default. Persisting multiple render outputs requires an existing output directory; existing paths always conflict.
 
 API key compatibility for `ws members` and `ws usage/quota/balance` depends on the server allowlist. Inspect `error.details.server_reason` for HTTP 403 to distinguish unsupported credential types from insufficient permissions. See [authentication](auth-and-workspaces.en.md#api-key-compatibility).
+
+## Historical revisions
+
+`get`, `cat` and `view` accept `--revision <id>` with either an absolute remote path or `id:<id>`. Omitting it reads the current revision.
+
+```sh
+deckflow version ls /report.pdf --json
+deckflow get /report.pdf ./report-old.pdf --revision REVISION_ID --json
+deckflow cat id:FILE_ID --revision REVISION_ID --json
+deckflow view /report.pdf --revision REVISION_ID --json
+```
+
+Downloads return `revisionId` and download audit/request IDs. Text and preview results return `revision`; preview retrieval parameters reference that revision. Downloads retain the existing authorization, billing and audit flow. Foreign, expired and inaccessible revisions return the standard error envelope and HTTP status without falling back to current content. A mismatched content response returns `REVISION_MISMATCH`. Historical `view --url` returns `UNSUPPORTED_OPERATION`; artifact descriptions provide access to existing previews without scheduling conversions.

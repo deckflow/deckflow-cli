@@ -1,4 +1,8 @@
 declare const messages: {
+  "无效版本 ID": string;
+  读取指定历史版本: string;
+  内容版本不匹配: string;
+  "历史版本的 Web 深链接": string;
   "DeckBase 云端文件命令行客户端": string;
   管理本地配置: string;
   列出用户配置: string;

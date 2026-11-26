@@ -64,7 +64,7 @@ deckflow ls / --ws OTHER_WORKSPACE_ID --json
 
 主要命令入口：
 
-- 对象管理：`ls/info/mkdir/new/put/get/cp/mv/rm`；`cat` 读取已有 UTF-8 文本，`view` 读取当前版本已有预览。
+- 对象管理：`ls/info/mkdir/new/put/get/cp/mv/rm`；`cat` 读取已有 UTF-8 文本，`view` 读取已有预览；`get/cat/view` 均支持 `--revision <id>` 读取历史版本。
 - 检索：`find` 查元数据，`grep` 做正则内容匹配，`seek` 做语义检索，`ask` 返回带依据的回答。`search` 的 lexical/hybrid 模式尚未接通。
 - 工作空间：`ws`；文件处理：`ops`；任务查询：`jobs`；版本历史：`version`。
 - 结构化文件：`pptx/docx` 提供能力查询，深度结构读取和编辑尚未实现。
